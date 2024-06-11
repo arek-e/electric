@@ -342,7 +342,7 @@ export const builderTests = (test: TestFn<ContextType>) => {
 
   test('read migration meta data', async (t) => {
     const { builder } = t.context
-    const migrations = await loadMigrations(migrationsFolder, builder)
+    const { migrations } = await loadMigrations(migrationsFolder, builder)
     const versions = migrations.map((m) => m.version)
     t.deepEqual(versions, ['20230613112725_814', '20230613112735_992'])
   })
