@@ -14,6 +14,7 @@ import {
 import _m0 from 'protobufjs/minimal.js'
 import path from 'path'
 import { QueryBuilder } from '../../src/migrators/query-builder'
+import { Relation } from '../../src/client/model/schema'
 
 function encodeSatOpMigrateMsg(request: SatOpMigrate) {
   return (
@@ -342,9 +343,50 @@ export const builderTests = (test: TestFn<ContextType>) => {
 
   test('read migration meta data', async (t) => {
     const { builder } = t.context
-    const { migrations } = await loadMigrations(migrationsFolder, builder)
+    const { migrations, dbDescription } = await loadMigrations(
+      migrationsFolder,
+      builder
+    )
     const versions = migrations.map((m) => m.version)
     t.deepEqual(versions, ['20230613112725_814', '20230613112735_992'])
+
+    t.deepEqual(dbDescription, {
+      stars: {
+        fields: {
+          id: 'text',
+          avatar_url: 'text',
+          name: 'text',
+          starred_at: 'text',
+          username: 'text',
+        },
+        relations: [
+          new Relation(
+            'beers',
+            '',
+            '',
+            'beers',
+            'beers_star_idTostars',
+            'many'
+          ),
+        ],
+      },
+      beers: {
+        fields: {
+          id: 'text',
+          star_id: 'text',
+        },
+        relations: [
+          new Relation(
+            'stars',
+            'star_id',
+            'id',
+            'stars',
+            'beers_star_idTostars',
+            'one'
+          ),
+        ],
+      },
+    })
   })
 
   test('prepareInsertBatchedStatements correctly splits up data in batches', (t) => {
