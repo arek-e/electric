@@ -353,11 +353,11 @@ export const builderTests = (test: TestFn<ContextType>) => {
     t.deepEqual(dbDescription, {
       stars: {
         fields: {
-          id: 'text',
-          avatar_url: 'text',
-          name: 'text',
-          starred_at: 'text',
-          username: 'text',
+          id: 'TEXT',
+          avatar_url: 'TEXT',
+          name: 'TEXT',
+          starred_at: 'TEXT',
+          username: 'TEXT',
         },
         relations: [
           new Relation(
@@ -372,8 +372,8 @@ export const builderTests = (test: TestFn<ContextType>) => {
       },
       beers: {
         fields: {
-          id: 'text',
-          star_id: 'text',
+          id: 'TEXT',
+          star_id: 'TEXT',
         },
         relations: [
           new Relation(
