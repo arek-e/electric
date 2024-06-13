@@ -81,6 +81,9 @@
       "capacitor": [
         "./dist/drivers/capacitor-sqlite/index.d.ts"
       ],
+      "client/conversions": [
+        "./dist/client/conversions/index.d.ts"
+      ],
       "expo": [
         "./dist/drivers/expo-sqlite/index.d.ts"
       ],
