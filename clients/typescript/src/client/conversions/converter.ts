@@ -1,3 +1,5 @@
+import { Row } from '../../util/types'
+import { AnyTableSchema } from '../model'
 import { PgType } from './types'
 
 export interface Converter {
@@ -8,11 +10,44 @@ export interface Converter {
    */
   encode(v: any, pgType: PgType): any
   /**
+   * Encodes the provided row for storing in the database.
+   * @param row The row to encode
+   * @param tableSchema The schema of the table for this row.
+   */
+  encodeRow(row: Row, tableSchema: AnyTableSchema): Record<string, any>
+  /**
+   * Encodes the provided rows for storing in the database.
+   * @param rows The rows to encode
+   * @param tableSchema The schema of the table for these rows.
+   */
+  encodeRows(
+    rows: Array<Row>,
+    tableSchema: AnyTableSchema
+  ): Array<Record<string, any>>
+  /**
    * Decodes the provided value from the database.
    * @param v The value to decode.
    * @param pgType The Postgres type of the column from which to decode the value.
    */
   decode(v: any, pgType: PgType): any
+  /**
+   * Decodes the provided row from the database.
+   * @param row The row to decode
+   * @param tableSchema The schema of the table for this row.
+   */
+  decodeRow<T extends Record<string, any> = Record<string, any>>(
+    row: Row,
+    tableSchema: AnyTableSchema
+  ): T
+  /**
+   * Decodes the provided rows from the database.
+   * @param rows The rows to decode
+   * @param tableSchema The schema of the table for these rows.
+   */
+  decodeRows<T extends Record<string, any> = Record<string, any>>(
+    rows: Array<Row>,
+    tableSchema: AnyTableSchema
+  ): Array<T>
 }
 
 /**
@@ -25,4 +60,28 @@ export interface Converter {
  */
 export function isDataObject(v: unknown): boolean {
   return v instanceof Date || typeof v === 'bigint' || ArrayBuffer.isView(v)
+}
+
+export function mapRow<T extends Record<string, any> = Record<string, any>>(
+  row: Row,
+  tableSchema: AnyTableSchema,
+  f: (v: any, pgType: PgType) => any
+): T {
+  const decodedRow = {} as T
+
+  for (const [key, value] of Object.entries(row)) {
+    const pgType = tableSchema.fields[key]
+    const decodedValue = f(value, pgType)
+    decodedRow[key as keyof T] = decodedValue
+  }
+
+  return decodedRow
+}
+
+export function mapRows<T extends Record<string, any> = Record<string, any>>(
+  rows: Array<Row>,
+  tableSchema: AnyTableSchema,
+  f: (v: any, pgType: PgType) => any
+): T[] {
+  return rows.map((row) => mapRow<T>(row, tableSchema, f))
 }

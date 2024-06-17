@@ -1,8 +1,10 @@
 import { InvalidArgumentError } from '../validation/errors/invalidArgumentError'
-import { Converter } from './converter'
+import { Converter, mapRow, mapRows } from './converter'
 import { deserialiseDate, serialiseDate } from './datatypes/date'
 import { isJsonNull } from './datatypes/json'
 import { PgBasicType, PgDateType, PgType } from './types'
+import { AnyTableSchema } from '../model/schema'
+import { Row } from '../../util/types'
 
 /**
  * This module takes care of converting TypeScript values to a Postgres storeable value and back.
@@ -11,7 +13,7 @@ import { PgBasicType, PgDateType, PgType } from './types'
  * Currently, no conversions are needed for the data types we support.
  */
 
-function toPostgres(v: any, pgType: PgType): any {
+export function toPostgres(v: any, pgType: PgType): any {
   if (v === null) {
     // don't transform null values
     return v
@@ -52,7 +54,7 @@ function toPostgres(v: any, pgType: PgType): any {
   }
 }
 
-function fromPostgres(v: any, pgType: PgType): any {
+export function fromPostgres(v: any, pgType: PgType): any {
   if (v === null) {
     // don't transform null values
     return v
@@ -97,5 +99,17 @@ function fromPostgres(v: any, pgType: PgType): any {
 
 export const postgresConverter: Converter = {
   encode: toPostgres,
+  encodeRow: (row: Row, tableSchema: AnyTableSchema) =>
+    mapRow(row, tableSchema, toPostgres),
+  encodeRows: (rows: Array<Row>, tableSchema: AnyTableSchema) =>
+    mapRows(rows, tableSchema, toPostgres),
   decode: fromPostgres,
+  decodeRow: <T extends Record<string, any> = Record<string, any>>(
+    row: Row,
+    tableSchema: AnyTableSchema
+  ) => mapRow<T>(row, tableSchema, fromPostgres),
+  decodeRows: <T extends Record<string, any> = Record<string, any>>(
+    rows: Array<Row>,
+    tableSchema: AnyTableSchema
+  ) => mapRows<T>(rows, tableSchema, fromPostgres),
 }
