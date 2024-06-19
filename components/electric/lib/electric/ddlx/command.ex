@@ -243,15 +243,9 @@ end
 
 defimpl Command.PgSQL, for: SatPerms.DDLX do
   alias Command
-  alias Electric.Postgres.Extension
 
-  def to_sql(%SatPerms.DDLX{} = ddlx, ddl_capture, quote_fun) do
-    Enum.concat([
-      serialise_ddlx(ddlx),
-      ddlx
-      |> Command.command_list()
-      |> Enum.flat_map(&Command.PgSQL.to_sql(&1, ddl_capture, quote_fun))
-    ])
+  def to_sql(%SatPerms.DDLX{}, _ddl_capture, _quote_fun) do
+    []
   end
 
   def validate_schema(%SatPerms.DDLX{} = ddlx, schema, electrified) do
@@ -259,14 +253,6 @@ defimpl Command.PgSQL, for: SatPerms.DDLX do
     |> Command.command_list()
     |> Enum.to_list()
     |> Command.PgSQL.validate_schema(schema, electrified)
-  end
-
-  defp serialise_ddlx(ddlx) do
-    encoded = Protox.encode!(ddlx) |> IO.iodata_to_binary() |> Base.encode16()
-
-    [
-      "INSERT INTO #{Extension.ddlx_table()} (ddlx) VALUES ('\\x#{encoded}'::bytea);"
-    ]
   end
 end
 

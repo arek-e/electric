@@ -14,6 +14,7 @@ defmodule Electric.Satellite.Permissions.State do
   require Logger
 
   @electric_ddlx Extension.ddlx_relation()
+  @electric_rules Extension.global_perms_relation()
 
   @enforce_keys [:rules, :schema]
 
@@ -38,6 +39,13 @@ defmodule Electric.Satellite.Permissions.State do
   def new(loader) do
     with {:ok, schema_version} <- SchemaLoader.load(loader),
          {:ok, rules} <- SchemaLoader.global_permissions(loader) do
+      # The rules we load here can be ahead of the replication stream, so we
+      # may receive updates to the rules that are before the rules we load
+      # here, and we will potentially be applying triggers from assigns that
+      # didn't exist when a row from an assigns table was updated.
+      #
+      # This is ok though, things will eventually resolve to a consistent
+      # state.
       {:ok, create_triggers(%__MODULE__{rules: rules, schema: schema_version})}
     end
   end
@@ -80,11 +88,11 @@ defmodule Electric.Satellite.Permissions.State do
   @doc false
   def update_global(%SatPerms.DDLX{} = ddlx, loader) do
     with {:ok, rules} <- SchemaLoader.global_permissions(loader) do
-      case mutate_global(ddlx, rules) do
-        {rules, 0} ->
+      case apply_ddlx(ddlx, rules) do
+        {:ok, 0, rules} ->
           {:ok, 0, loader, rules}
 
-        {rules, n} ->
+        {:ok, n, rules} ->
           with {:ok, loader} <- SchemaLoader.save_global_permissions(loader, rules) do
             {:ok, n, loader, rules}
           end
@@ -92,21 +100,44 @@ defmodule Electric.Satellite.Permissions.State do
     end
   end
 
-  defp apply_changes([%{relation: @electric_ddlx} | _] = changes, {state, loader}) do
-    {:ok, rules} = SchemaLoader.global_permissions(loader)
+  def apply_ddlx(%SatPerms.DDLX{} = ddlx, %SatPerms.Rules{} = rules) do
+    with {rules, n} <- mutate_global(ddlx, rules) do
+      {:ok, n, rules}
+    end
+  end
 
-    case Enum.reduce(changes, {rules, 0}, &apply_global_change/2) do
-      {_rules, 0} ->
-        {[], {state, loader}}
+  def apply_ddlx(_action, %SatPerms.Rules{} = rules) do
+    {:ok, 0, rules}
+  end
 
-      {rules, _count} ->
-        Logger.debug(fn -> "Updated global permissions id: #{rules.id}" end)
-        {:ok, loader} = SchemaLoader.save_global_permissions(loader, rules)
+  def apply_ddlx!(%SatPerms.DDLX{} = ddlx, %SatPerms.Rules{} = rules) do
+    {:ok, _, rules} = apply_ddlx(ddlx, rules)
+    rules
+  end
 
-        {
-          [updated_global_permissions(rules)],
-          {create_triggers(%{state | rules: rules}), loader}
-        }
+  # just ignoring ddlx commmands for now. Because perms state mutations are
+  # done in the proxy and arrive here fully-formed, the only ddlx command we
+  # currently receive are `ELECTRIC SQLITE...`, which currently do nothing.
+  defp apply_changes([%{relation: @electric_ddlx} | _], {state, loader}) do
+    {[], {state, loader}}
+  end
+
+  defp apply_changes([%{relation: @electric_rules} | _] = changes, {state, loader}) do
+    # we can just take the last insert and skip any intermediate states
+    %{record: %{"rules" => bytes}} = List.last(changes)
+
+    {:ok, new_rules} = decode_pb(bytes, SatPerms.Rules)
+
+    if new_rules.id > state.rules.id do
+      Logger.debug(fn -> "Updated global permissions id: #{new_rules.id}" end)
+      # {:ok, loader} = SchemaLoader.save_global_permissions(loader, rules)
+
+      {
+        [updated_global_permissions(new_rules)],
+        {create_triggers(%{state | rules: new_rules}), loader}
+      }
+    else
+      {[], {state, loader}}
     end
   end
 
@@ -115,22 +146,6 @@ defmodule Electric.Satellite.Permissions.State do
       Enum.flat_map_reduce(changes, {state.triggers, loader}, &apply_triggers/2)
 
     {changes, {state, loader}}
-  end
-
-  # the ddlx table is insert-only
-  defp apply_global_change(%Changes.NewRecord{} = change, {rules, count}) do
-    %{record: %{"ddlx" => ddlx_bytes}} = change
-
-    pb_bytes =
-      case ddlx_bytes do
-        "\\x" <> rest -> Base.decode16!(rest, case: :lower)
-        bytes -> bytes
-      end
-
-    {:ok, ddlx} =
-      Protox.decode(pb_bytes, SatPerms.DDLX)
-
-    mutate_global(ddlx, rules, count)
   end
 
   defp apply_triggers(change, {triggers, loader}) do
@@ -368,5 +383,15 @@ defmodule Electric.Satellite.Permissions.State do
       Trigger.assign_triggers(state.rules.assigns, state.schema, &update_roles_callback/3)
 
     %{state | triggers: triggers}
+  end
+
+  defp decode_pb(bytes, message) do
+    pb_bytes =
+      case bytes do
+        "\\x" <> rest -> Base.decode16!(rest, case: :lower)
+        bytes -> bytes
+      end
+
+    Protox.decode(pb_bytes, message)
   end
 end

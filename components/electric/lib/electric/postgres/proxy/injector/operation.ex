@@ -235,7 +235,8 @@ defmodule Operation.Impl do
   Used by Electric DDLX commands which fake the responses from
   Parse/Describe and Bind/Execute.
   """
-  @spec response(PgProtocol.Message.t(), String.t() | nil, State.t()) :: PgProtocol.Message.t()
+  @spec response(PgProtocol.Message.t(), String.t() | nil, State.t()) ::
+          PgProtocol.Message.t()
   def response(msg, tag \\ nil, state)
 
   def response(%M.Parse{}, _tag, _state) do
@@ -487,15 +488,87 @@ defmodule Operation.Between do
   end
 end
 
-defmodule Operation.Begin do
-  defstruct hidden?: false
+defmodule IntrospectionQuery do
+  defstruct [:query, :callback, rows: []]
 
   defimpl Operation do
     use Operation.Impl
 
     def activate(op, state, send) do
-      {if(op.hidden?, do: op, else: nil), State.begin(state),
-       Send.server(send, [%M.Query{query: "BEGIN"}])}
+      {op, state, Send.server(send, %M.Query{query: op.query})}
+    end
+
+    def recv_server(op, %M.RowDescription{}, state, send) do
+      {op, state, send}
+    end
+
+    def recv_server(op, %M.DataRow{fields: row}, state, send) do
+      {%{op | rows: [row | op.rows]}, state, send}
+    end
+
+    def recv_server(op, %M.CommandComplete{}, state, send) do
+      {op, state, send}
+    end
+
+    def recv_server(op, %M.ReadyForQuery{}, state, send) do
+      callback = op.callback || (&null_callback/3)
+      {state, send} = callback.(Enum.reverse(op.rows), state, send)
+      {nil, state, send}
+    end
+
+    defp null_callback(_rows, state, send) do
+      {state, send}
+    end
+  end
+end
+
+defmodule Operation.Begin do
+  defstruct hidden?: false, introspect: [:perms], rules: nil
+
+  alias Electric.Satellite.SatPerms
+
+  alias __MODULE__, as: O
+
+  defimpl Operation do
+    use Operation.Impl
+
+    def activate(op, state, send) do
+      {op, State.begin(state), Send.server(send, [%M.Query{query: "BEGIN"}])}
+    end
+
+    def recv_server(%O{hidden?: true} = _op, %M.ReadyForQuery{}, state, send) do
+      introspect(state, send)
+    end
+
+    def recv_server(%O{} = _op, %M.ReadyForQuery{}, state, send) do
+      introspect(
+        state,
+        Send.client(send, [
+          %M.CommandComplete{tag: "BEGIN"},
+          %M.ReadyForQuery{status: :tx}
+        ])
+      )
+    end
+
+    def recv_server(%O{} = op, _msg, state, send) do
+      {op, state, send}
+    end
+
+    defp introspect(state, send) do
+      stack = [
+        %IntrospectionQuery{
+          query: state.query_generator.permissions_rules_query(),
+          callback: fn [[[data]]], state, send ->
+            {:ok, rules} = Protox.decode(data, SatPerms.Rules)
+            {State.tx_permissions(state, rules), send}
+          end
+        },
+        %IntrospectionQuery{
+          query: state.query_generator.permissions_lock_query()
+        }
+      ]
+
+      Operation.activate(stack, state, send)
     end
   end
 end
@@ -520,8 +593,22 @@ defmodule Operation.Commit do
     use Operation.Impl
 
     def activate(op, state, send) do
-      {if(op.hidden?, do: op, else: nil), State.commit(state),
-       Send.server(send, [%M.Query{query: "COMMIT"}])}
+      if rules = State.permissions_modified(state) do
+        stack = [
+          %IntrospectionQuery{
+            query: state.query_generator.save_permissions_rules_query(rules),
+            callback: fn _rows, state, send ->
+              {State.permissions_saved(state), send}
+            end
+          },
+          op
+        ]
+
+        Operation.activate(stack, state, send)
+      else
+        {if(op.hidden?, do: op, else: nil), State.commit(state),
+         Send.server(send, [%M.Query{query: "COMMIT"}])}
+      end
     end
 
     def send_error(_op, state, send) do
@@ -730,12 +817,45 @@ defmodule Operation.Electric do
       op = %{op | schema: Schema.new()}
 
       state = op |> tables() |> Enum.reduce(state, &State.electrify(&2, &1))
+      # dbg(state.tx)
+      # dbg(op.command)
+      # tables = tables(op)
+
+      # stack = [
+      #   %IntrospectionQuery{
+      #     query: state.query_generator.electrified_tables_query(),
+      #     callback: fn rows, state, send ->
+      #       op =
+      #         Enum.reduce(rows, op, fn [[schema, name]], op ->
+      #           Map.update!(op, :tables, &MapSet.put(&1, {schema, name}))
+      #         end)
+      #
+      #       {op, state, send}
+      #     end
+      #   },
+      #   %IntrospectionQuery{
+      #     query: state.query_generator.introspect_tables_query(tables),
+      #     callback: fn rows, state, send ->
+      #       op =
+      #         Enum.reduce(rows, op, fn [[schema, name]], op ->
+      #           Map.update!(op, :tables, &MapSet.put(&1, {schema, name}))
+      #         end)
+      #
+      #       {op, state, send}
+      #     end
+      #   }
+      # ]
 
       send_query(op, state, send)
     end
 
     # ignore row description messages, we know the format of the responses
-    def recv_server(%O{introspect: [_ | _]} = op, %M.RowDescription{fields: [_]}, state, send) do
+    def recv_server(
+          %O{introspect: [_ | _]} = op,
+          %M.RowDescription{fields: [_]},
+          state,
+          send
+        ) do
       {op, state, send}
     end
 
@@ -749,12 +869,22 @@ defmodule Operation.Electric do
     end
 
     # this ready for query is the end of the list of electrified tables query
-    def recv_server(%O{introspect: [:electrified | rest]} = op, %M.ReadyForQuery{}, state, send) do
+    def recv_server(
+          %O{introspect: [:electrified | rest]} = op,
+          %M.ReadyForQuery{},
+          state,
+          send
+        ) do
       send_query(%{op | introspect: rest}, state, send)
     end
 
     # this ready for query is the end of the ddlx introspection query
-    def recv_server(%O{introspect: [:ddl | _]} = op, %M.DataRow{fields: [ddl]}, state, send) do
+    def recv_server(
+          %O{introspect: [:ddl | _]} = op,
+          %M.DataRow{fields: [ddl]},
+          state,
+          send
+        ) do
       schema = Schema.update(op.schema, ddl, oid_loader: &oid_loader/3)
       {Map.update!(%{op | schema: schema}, :ddl, &[ddl | &1]), state, send}
     end
@@ -844,10 +974,34 @@ defmodule Operation.Electric do
     defp send_query(%O{introspect: []} = op, state, send) do
       ddl = Enum.reverse(op.ddl)
 
-      [query | queries] =
-        DDLX.Command.proxy_sql(op.command, ddl, &state.query_generator.quote_query/1)
+      # TODO: rename this proxy_sql function, should be command_sql or
+      # something. only electrify returns something here perms commands return
+      # nothing for this
+      #
+      # TODO: we also need to run actions based on the command so for an
+      # assign, we need to query the assign table in this txn in order to
+      # generate roles for all the existing entries in the assign table by
+      # iterating the rows in that table and running the assign triggers
+      # against them. this is much better than my idea of capturing a snapshot
+      # and using it later in the replication consumer.
+      case DDLX.Command.proxy_sql(op.command, ddl, &state.query_generator.quote_query/1) do
+        [query | queries] ->
+          {%{op | queries: queries}, state, Send.server(send, query(query))}
 
-      {%{op | queries: queries}, state, Send.server(send, query(query))}
+        [] ->
+          tag = DDLX.Command.tag(op.command)
+
+          reply =
+            case op.mode do
+              :simple ->
+                [%M.CommandComplete{tag: tag}, %M.ReadyForQuery{status: :tx}]
+
+              :extended ->
+                []
+            end
+
+          {nil, State.update_permissions(state, op.command), Send.client(send, reply)}
+      end
     end
 
     # we don't need real oids

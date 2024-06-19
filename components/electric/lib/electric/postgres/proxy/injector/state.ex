@@ -14,6 +14,7 @@ defmodule Electric.Postgres.Proxy.Injector.State do
               id: 0,
               tables: %{},
               rules: nil,
+              rules_modifications: 0,
               schema: nil,
               failed: false
 
@@ -23,6 +24,7 @@ defmodule Electric.Postgres.Proxy.Injector.State do
             tables: %{Postgres.relation() => true},
             id: pos_integer(),
             rules: nil | %SatPerms.Rules{},
+            rules_modifications: non_neg_integer(),
             schema: nil | Postgres.Schema.t(),
             failed: boolean()
           }
@@ -223,4 +225,36 @@ defmodule Electric.Postgres.Proxy.Injector.State do
 
   def failed?(%__MODULE__{tx: nil}), do: false
   def failed?(%__MODULE__{tx: tx}), do: tx.failed
+
+  def txn_permissions(%__MODULE__{tx: nil}, _rules) do
+    raise "no in transaction"
+  end
+
+  def tx_permissions(%__MODULE__{} = state, rules) do
+    Map.update!(state, :tx, &Map.put(&1, :rules, rules))
+  end
+
+  def update_permissions(%__MODULE__{} = state, %Electric.DDLX.Command{} = command) do
+    {:ok, n, rules} =
+      Electric.Satellite.Permissions.State.apply_ddlx(command.action, state.tx.rules)
+
+    Map.update!(
+      state,
+      :tx,
+      &%{&1 | rules: rules, rules_modifications: &1.rules_modifications + n}
+    )
+  end
+
+  def permissions_modified(%__MODULE__{tx: %{rules_modifications: n, rules: rules}})
+      when n > 0 do
+    rules
+  end
+
+  def permissions_modified(%__MODULE__{}) do
+    nil
+  end
+
+  def permissions_saved(%__MODULE__{tx: tx} = state) do
+    %{state | tx: %{tx | rules_modifications: 0}}
+  end
 end

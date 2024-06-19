@@ -3,6 +3,7 @@ defmodule Electric.Postgres.Proxy.Injector do
   alias Electric.Postgres
   alias Electric.Postgres.Proxy.Injector
   alias Electric.Postgres.Proxy.Injector.{Operation, Send, State}
+  alias Electric.Satellite.SatPerms
 
   require Logger
 
@@ -21,12 +22,17 @@ defmodule Electric.Postgres.Proxy.Injector do
   @callback quote_query(String.t()) :: String.t()
   @callback introspect_tables_query(Postgres.relation() | String.t() | [String.t()]) :: String.t()
   @callback electrified_tables_query() :: String.t()
+  @callback permissions_rules_query() :: String.t()
+  @callback permissions_lock_query() :: String.t()
+  @callback save_permissions_rules_query(%SatPerms.Rules{}) :: String.t()
   @callback capture_ddl_query(query :: binary()) :: binary()
   @callback capture_version_query(version :: binary(), priority :: integer()) :: binary()
   @callback alter_shadow_table_query(table_modification()) :: binary()
   @callback migration_version() :: binary()
 
   @default_mode {Injector.Electric, []}
+
+  @behaviour __MODULE__
 
   def new(opts \\ [], connection) do
     with {:ok, loader} <- Keyword.fetch(opts, :loader) do
@@ -186,6 +192,18 @@ defmodule Electric.Postgres.Proxy.Injector do
 
   def electrified_tables_query do
     Electric.Postgres.Extension.electrified_tables_query()
+  end
+
+  def permissions_rules_query do
+    Electric.Postgres.Extension.Permissions.global_rules_query()
+  end
+
+  def permissions_lock_query do
+    "LOCK TABLE #{Electric.Postgres.Extension.global_perms_table()} IN EXCLUSIVE MODE"
+  end
+
+  def save_permissions_rules_query(rules) do
+    Electric.Postgres.Extension.Permissions.save_global_query(rules)
   end
 
   defp normalise_name({_, _} = relation) do

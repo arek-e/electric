@@ -1,12 +1,41 @@
+defmodule Electric.Postgres.Extension.Permissions.Macros do
+  defmacro global_query_template(id, parent_id, rules) do
+    # We need to duplicate all the current user perms that, which all depend on the previous version
+    # of the global rules. This query is complicated by the need to only select the most current
+    # version of each user's permissions (because for a given rules id, a user may have multiple
+    # versions of their roles).
+
+    quote do
+      """
+      WITH global_perms AS (
+        INSERT INTO #{@global_perms_table} (id, parent_id, rules)
+            VALUES (#{unquote(id)}, #{unquote(parent_id)}, #{unquote(rules)}) RETURNING id, parent_id
+      ) 
+        INSERT INTO #{@user_perms_table} (user_id, parent_id, roles, global_perms_id)
+          SELECT u.*, global_perms.id FROM
+            (SELECT DISTINCT user_id FROM #{@user_perms_table} ORDER BY user_id) uid
+            JOIN LATERAL (
+              SELECT ui.user_id, ui.id, ui.roles FROM #{@user_perms_table} ui
+              WHERE ui.user_id = uid.user_id
+              ORDER BY ui.id DESC
+              LIMIT 1
+          ) u ON TRUE, global_perms
+      """
+    end
+  end
+end
+
 defmodule Electric.Postgres.Extension.Permissions do
   alias Electric.Postgres.Extension
   alias Electric.Satellite.SatPerms
+
+  import Electric.Postgres.Extension.Permissions.Macros, only: :macros
 
   @global_perms_table Extension.global_perms_table()
   @user_perms_table Extension.user_perms_table()
 
   @shared_global_query """
-    SELECT "id", "parent_id", "rules" FROM #{@global_perms_table}
+    SELECT "rules" FROM #{@global_perms_table}
   """
 
   @current_global_query """
@@ -43,25 +72,7 @@ defmodule Electric.Postgres.Extension.Permissions do
         LIMIT 1
   """
 
-  # We need to duplicate all the current user perms that, which all depend on the previous version
-  # of the global rules. This query is complicated by the need to only select the most current
-  # version of each user's permissions (because for a given rules id, a user may have multiple
-  # versions of their roles).
-  @save_global_query """
-    WITH global_perms AS (
-      INSERT INTO #{@global_perms_table} (id, parent_id, rules)
-          VALUES ($1, $2, $3) RETURNING id, parent_id
-    )
-    INSERT INTO #{@user_perms_table} (user_id, parent_id, roles, global_perms_id)
-        SELECT u.*, global_perms.id FROM
-          (SELECT DISTINCT user_id FROM #{@user_perms_table} ORDER BY user_id) uid
-          JOIN LATERAL (
-            SELECT ui.user_id, ui.id, ui.roles FROM #{@user_perms_table} ui
-            WHERE ui.user_id = uid.user_id
-            ORDER BY ui.id DESC
-            LIMIT 1
-        ) u ON TRUE, global_perms
-  """
+  @save_global_query global_query_template("$1", "$2", "$3")
 
   @create_user_query """
     WITH global_perms AS (
@@ -81,16 +92,27 @@ defmodule Electric.Postgres.Extension.Permissions do
         FROM user_perms, global_perms
   """
 
+  def global_rules_query, do: @current_global_query
+
+  def save_global_query(%SatPerms.Rules{id: id, parent_id: parent_id} = rules)
+      when is_integer(id) and is_integer(parent_id) do
+    with {:ok, iodata} <- Protox.encode(rules),
+         bytes = IO.iodata_to_binary(iodata),
+         hex = Base.encode16(bytes) do
+      global_query_template("#{id}", "#{parent_id}", "'\\x#{hex}'::bytea")
+    end
+  end
+
   def global(conn) do
     with {:ok, _cols, [row]} <- :epgsql.equery(conn, @current_global_query, []),
-         {_id, _parent_id, bytes} = row do
+         {bytes} = row do
       Protox.decode(bytes, SatPerms.Rules)
     end
   end
 
   def global(conn, id) do
     with {:ok, _cols, [row]} <- :epgsql.equery(conn, @specific_global_query, [id]),
-         {_id, _parent_id, bytes} = row do
+         {bytes} = row do
       Protox.decode(bytes, SatPerms.Rules)
     end
   end

@@ -82,9 +82,7 @@ defmodule Electric.Postgres.Proxy.SchemaValidationTest do
   end
 
   defp txn(injector) do
-    injector
-    |> client("BEGIN")
-    |> server(complete_ready("BEGIN", :tx))
+    electric_begin(injector, client: begin())
   end
 
   defp start_transaction(cxt) do
@@ -282,8 +280,9 @@ defmodule Electric.Postgres.Proxy.SchemaValidationTest do
       {:ok, command} = DDLX.parse(ddlx)
 
       cxt.injector
-      |> client(begin())
-      |> server(complete_ready("BEGIN", :tx))
+      |> electric_begin(client: begin())
+      # |> client(begin())
+      # |> server(complete_ready("BEGIN", :tx))
       |> electric_preamble([client: ddlx], command)
       |> server(
         introspect_result(ddl),
@@ -303,8 +302,11 @@ defmodule Electric.Postgres.Proxy.SchemaValidationTest do
       ddl = create_table_ddl(relation, columns)
 
       cxt.injector
-      |> client("ALTER TABLE #{name} ENABLE ELECTRIC", server: "BEGIN")
-      |> electric_preamble([server: complete_ready("BEGIN", :tx)], command)
+      |> client("ALTER TABLE #{name} ENABLE ELECTRIC", server: begin())
+      |> server(complete_ready("BEGIN", :tx), server: permissions_rules_query())
+      |> server(rules_query_result(), server: permissions_lock_query())
+      # |> electric_begin(client: "ALTER TABLE #{name} ENABLE ELECTRIC")
+      |> electric_preamble([server: permissions_lock_query_result()], command)
       |> server(
         introspect_result(ddl),
         server: "ROLLBACK"
@@ -322,8 +324,9 @@ defmodule Electric.Postgres.Proxy.SchemaValidationTest do
       {:ok, command} = DDLX.parse(ddlx)
 
       cxt.injector
-      |> client(begin())
-      |> server(complete_ready("BEGIN", :tx))
+      |> electric_begin(client: begin())
+      # |> client(begin())
+      # |> server(complete_ready("BEGIN", :tx))
       |> electric_preamble([client: ddlx], command)
       |> server(
         introspect_result(ddl),
