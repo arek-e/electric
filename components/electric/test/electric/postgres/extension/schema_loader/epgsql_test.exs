@@ -199,7 +199,7 @@ defmodule Electric.Postgres.Extension.SchemaLoader.EpgsqlTest do
         ]
       )
 
-    rules = State.apply_ddlx(rules, ddlx)
+    rules = State.apply_ddlx!(ddlx, rules)
 
     assert {:ok, _loader} = SchemaLoader.save_global_permissions(loader, rules)
 
@@ -231,7 +231,7 @@ defmodule Electric.Postgres.Extension.SchemaLoader.EpgsqlTest do
         ]
       )
 
-    rules = State.apply_ddlx(rules, ddlx)
+    rules = State.apply_ddlx!(ddlx, rules)
 
     assert {:ok, _loader} = SchemaLoader.save_global_permissions(loader, rules)
 

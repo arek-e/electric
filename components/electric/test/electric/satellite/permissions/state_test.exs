@@ -7,10 +7,12 @@ defmodule Electric.Satellite.Permissions.StateTest do
   alias Electric.Replication.Changes
   alias Electric.Satellite.Permissions.State
   alias Electric.Satellite.SatPerms
-  alias ElectricTest.PermissionsHelpers.{Chgs, Proto}
+  alias ElectricTest.PermissionsHelpers.{Chgs, Proto, Perms}
 
   def apply_ddlx(rules \\ %SatPerms.Rules{}, cmds) do
-    State.apply_ddlx(rules, Command.ddlx(cmds))
+    cmds
+    |> Command.ddlx()
+    |> State.apply_ddlx!(rules)
   end
 
   def new(cmds) do
@@ -300,11 +302,11 @@ defmodule Electric.Satellite.Permissions.StateTest do
       rules =
         ddlx
         |> parse_ddlx()
-        |> Enum.reduce(%SatPerms.Rules{}, &State.apply_ddlx(&2, &1))
+        |> Enum.reduce(%SatPerms.Rules{id: 1}, &State.apply_ddlx!/2)
 
       assert rules == %SatPerms.Rules{
-               id: 5,
-               parent_id: 4,
+               id: 6,
+               parent_id: 5,
                assigns: [
                  Proto.assign(
                    scope: Proto.scope("projects"),
@@ -347,11 +349,11 @@ defmodule Electric.Satellite.Permissions.StateTest do
       rules =
         ddlx
         |> parse_ddlx()
-        |> Enum.reduce(rules, &State.apply_ddlx(&2, &1))
+        |> Enum.reduce(rules, &State.apply_ddlx!/2)
 
       assert rules == %SatPerms.Rules{
-               id: 9,
-               parent_id: 8,
+               id: 10,
+               parent_id: 9,
                assigns: [],
                grants: []
              }
@@ -467,12 +469,12 @@ defmodule Electric.Satellite.Permissions.StateTest do
           role_name: "admin"
         )
 
-      ddlx = Command.ddlx(assigns: [assign1])
+      {loader, rules} = Perms.rules(loader, assigns: [assign1])
 
       tx =
         Chgs.tx([
           Chgs.insert({"public", "kittens"}, %{"size" => "cute"}),
-          Chgs.ddlx(ddlx)
+          Chgs.rules(rules)
         ])
 
       assert {:ok, tx, consumer, loader} = State.update(tx, consumer, loader)
@@ -497,11 +499,11 @@ defmodule Electric.Satellite.Permissions.StateTest do
           role_name: "admin2"
         )
 
-      ddlx = Command.ddlx(assigns: [assign2])
+      {loader, rules} = Perms.rules(loader, assigns: [assign1, assign2])
 
       tx =
         Chgs.tx([
-          Chgs.ddlx(ddlx),
+          Chgs.rules(rules),
           Chgs.insert({"public", "kittens"}, %{"size" => "cute"})
         ])
 
@@ -533,7 +535,7 @@ defmodule Electric.Satellite.Permissions.StateTest do
           role_name: "admin"
         )
 
-      ddlx1 = Command.ddlx(assigns: [assign1])
+      {loader, rules1} = Perms.rules(loader, assigns: [assign1])
 
       assign2 =
         Proto.assign(
@@ -543,7 +545,7 @@ defmodule Electric.Satellite.Permissions.StateTest do
           role_column: "role"
         )
 
-      ddlx2 = Command.ddlx(assigns: [assign2])
+      {loader, rules2} = Perms.rules(loader, assigns: [assign1, assign2])
 
       assign3 =
         Proto.assign(
@@ -553,15 +555,15 @@ defmodule Electric.Satellite.Permissions.StateTest do
           role_column: "role"
         )
 
-      ddlx3 = Command.ddlx(assigns: [assign3])
+      {loader, rules3} = Perms.rules(loader, assigns: [assign1, assign2, assign3])
 
       tx =
         Chgs.tx([
-          Chgs.ddlx(ddlx1),
-          Chgs.ddlx(ddlx2),
+          Chgs.rules(rules1),
+          Chgs.rules(rules2),
           Chgs.insert({"public", "kittens"}, %{"size" => "cute"}),
           Chgs.insert({"public", "kittens"}, %{"fur" => "furry"}),
-          Chgs.ddlx(ddlx3)
+          Chgs.rules(rules3)
         ])
 
       assert {:ok, tx, _consumer, _loader} = State.update(tx, consumer, loader)
@@ -570,7 +572,7 @@ defmodule Electric.Satellite.Permissions.StateTest do
                %Changes.UpdatedPermissions{
                  type: :global,
                  permissions: %Changes.UpdatedPermissions.GlobalPermissions{
-                   permissions_id: 2
+                   permissions_id: 3
                  }
                },
                Chgs.insert({"public", "kittens"}, %{"size" => "cute"}),
@@ -578,7 +580,7 @@ defmodule Electric.Satellite.Permissions.StateTest do
                %Changes.UpdatedPermissions{
                  type: :global,
                  permissions: %Changes.UpdatedPermissions.GlobalPermissions{
-                   permissions_id: 3
+                   permissions_id: 4
                  }
                }
              ]
@@ -751,11 +753,11 @@ defmodule Electric.Satellite.Permissions.StateTest do
           role_column: "team_role"
         )
 
-      ddlx = Command.ddlx(assigns: [assign])
+      {loader, rules} = Perms.rules(loader, assigns: [assign])
 
       tx =
         Chgs.tx([
-          Chgs.ddlx(ddlx),
+          Chgs.rules(rules),
           Chgs.insert(
             {"public", "team_memberships"},
             %{
@@ -1282,7 +1284,11 @@ defmodule Electric.Satellite.Permissions.StateTest do
           ]
         )
 
-      tx = Chgs.tx([Chgs.ddlx(ddlx)])
+      {:ok, 1, rules} = State.apply_ddlx(ddlx, rules)
+
+      {loader, rules} = Perms.rules(loader, rules)
+
+      tx = Chgs.tx([Chgs.rules(rules)])
 
       assert {:ok, _tx, consumer, loader} = State.update(tx, consumer, loader)
 
@@ -1460,6 +1466,16 @@ defmodule Electric.Satellite.Permissions.StateTest do
     assert {:ok, consumer} = State.new(loader)
 
     ddlx = Command.ddlx(sqlite: [Proto.sqlite("create table local (id primary key)")])
+
+    {loader, _rules} =
+      Perms.rules(loader,
+        unassign:
+          Proto.unassign(
+            table: Proto.table("site_admins"),
+            user_column: "user_id",
+            role_column: "site_role"
+          )
+      )
 
     tx =
       Chgs.tx([

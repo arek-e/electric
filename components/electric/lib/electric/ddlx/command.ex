@@ -7,6 +7,9 @@ defprotocol Electric.DDLX.Command.PgSQL do
   @spec validate_schema(t(), Schema.t(), MapSet.t()) ::
           {:ok, [String.t()]} | {:error, %{optional(:code) => String.t(), message: String.t()}}
   def validate_schema(cmd, schema, electrified)
+
+  @spec modifies_permissions?(t()) :: boolean()
+  def modifies_permissions?(cmd)
 end
 
 alias Electric.Satellite.SatPerms
@@ -77,6 +80,10 @@ defmodule Electric.DDLX.Command do
 
   def table_names(%__MODULE__{tables: tables}), do: tables
 
+  def modifies_permissions?(cmd) do
+    PgSQL.modifies_permissions?(cmd)
+  end
+
   def electric_enable({_, _} = table) do
     table_name = Electric.Utils.inspect_relation(table)
 
@@ -86,6 +93,10 @@ defmodule Electric.DDLX.Command do
       tag: "ELECTRIC ENABLE",
       tables: [table]
     }
+  end
+
+  def command_list(%__MODULE__{action: %SatPerms.DDLX{} = ddlx}) do
+    command_list(ddlx)
   end
 
   def command_list(%SatPerms.DDLX{} = ddlx) do
@@ -216,6 +227,10 @@ defmodule Electric.DDLX.Command do
     def validate_schema(%Electric.DDLX.Command{action: action}, schema, electrified) do
       Command.PgSQL.validate_schema(action, schema, electrified)
     end
+
+    def modifies_permissions?(%Electric.DDLX.Command{action: action}) do
+      Command.PgSQL.modifies_permissions?(action)
+    end
   end
 end
 
@@ -239,19 +254,17 @@ defimpl Command.PgSQL, for: List do
       end
     end)
   end
+
+  def modifies_permissions?(list) do
+    Enum.any?(list, &Command.PgSQL.modifies_permissions?/1)
+  end
 end
 
 defimpl Command.PgSQL, for: SatPerms.DDLX do
   alias Command
-  alias Electric.Postgres.Extension
 
-  def to_sql(%SatPerms.DDLX{} = ddlx, ddl_capture, quote_fun) do
-    Enum.concat([
-      serialise_ddlx(ddlx),
-      ddlx
-      |> Command.command_list()
-      |> Enum.flat_map(&Command.PgSQL.to_sql(&1, ddl_capture, quote_fun))
-    ])
+  def to_sql(%SatPerms.DDLX{}, _ddl_capture, _quote_fun) do
+    []
   end
 
   def validate_schema(%SatPerms.DDLX{} = ddlx, schema, electrified) do
@@ -261,12 +274,13 @@ defimpl Command.PgSQL, for: SatPerms.DDLX do
     |> Command.PgSQL.validate_schema(schema, electrified)
   end
 
-  defp serialise_ddlx(ddlx) do
-    encoded = Protox.encode!(ddlx) |> IO.iodata_to_binary() |> Base.encode16()
-
-    [
-      "INSERT INTO #{Extension.ddlx_table()} (ddlx) VALUES ('\\x#{encoded}'::bytea);"
-    ]
+  def modifies_permissions?(ddlx) do
+    Enum.any?(
+      ddlx
+      |> Command.command_list()
+      |> Enum.to_list(),
+      &Command.PgSQL.modifies_permissions?/1
+    )
   end
 end
 
@@ -280,6 +294,10 @@ defimpl Command.PgSQL, for: SatPerms.Grant do
   def validate_schema(%SatPerms.Grant{} = grant, schema, _electrified) do
     Validator.validate_schema_for_grant(schema, grant)
   end
+
+  def modifies_permissions?(_) do
+    true
+  end
 end
 
 defimpl Command.PgSQL, for: SatPerms.Revoke do
@@ -289,6 +307,10 @@ defimpl Command.PgSQL, for: SatPerms.Revoke do
 
   def validate_schema(%SatPerms.Revoke{}, _schema, _electrified) do
     {:ok, []}
+  end
+
+  def modifies_permissions?(_) do
+    true
   end
 end
 
@@ -300,6 +322,10 @@ defimpl Command.PgSQL, for: SatPerms.Assign do
   def validate_schema(%SatPerms.Assign{}, _schema, _electrified) do
     {:ok, []}
   end
+
+  def modifies_permissions?(_) do
+    true
+  end
 end
 
 defimpl Command.PgSQL, for: SatPerms.Unassign do
@@ -310,6 +336,10 @@ defimpl Command.PgSQL, for: SatPerms.Unassign do
   def validate_schema(%SatPerms.Unassign{}, _schema, _electrified) do
     {:ok, []}
   end
+
+  def modifies_permissions?(_) do
+    true
+  end
 end
 
 defimpl Command.PgSQL, for: SatPerms.Sqlite do
@@ -319,6 +349,10 @@ defimpl Command.PgSQL, for: SatPerms.Sqlite do
 
   def validate_schema(%SatPerms.Sqlite{}, _schema, _electrified) do
     {:ok, []}
+  end
+
+  def modifies_permissions?(_) do
+    false
   end
 end
 
@@ -344,6 +378,10 @@ defimpl Command.PgSQL, for: Command.Enable do
   def validate_schema(%Enable{} = enable, schema, electrified) do
     Validator.validate_schema_for_electrification(schema, enable.table_name, electrified)
   end
+
+  def modifies_permissions?(_) do
+    false
+  end
 end
 
 defimpl Command.PgSQL, for: Command.Disable do
@@ -360,6 +398,10 @@ defimpl Command.PgSQL, for: Command.Disable do
   def validate_schema(%Command.Disable{}, _schema, _electrified) do
     {:ok, []}
   end
+
+  def modifies_permissions?(_) do
+    false
+  end
 end
 
 defimpl Command.PgSQL, for: Command.Error do
@@ -369,5 +411,9 @@ defimpl Command.PgSQL, for: Command.Error do
 
   def validate_schema(_, _, _) do
     {:ok, []}
+  end
+
+  def modifies_permissions?(_) do
+    false
   end
 end
