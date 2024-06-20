@@ -13,7 +13,6 @@ COPY pnpm-workspace.yaml ./
 
 # E2E Client deps install + build
 COPY clients/typescript ./clients/typescript
-COPY generator ./generator
 COPY e2e/satellite_client/package.json  ./e2e/satellite_client/
 RUN pnpm install -r --offline --filter @internal/satellite-client^...
 RUN pnpm run -r --filter @internal/satellite-client^... build
