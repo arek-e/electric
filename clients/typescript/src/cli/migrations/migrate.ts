@@ -314,7 +314,7 @@ async function bundleDbDescription(
     import pgMigrations from './pg-migrations';
     import { type TableSchemas, DbSchema, Relation, ElectricClient } from 'electric-sql/client/model';
 
-    const tableSchemas = ${serializedDbDescription} as unknown as TableSchemas
+    const tableSchemas = ${serializedDbDescription} as TableSchemas
 
     export const schema = new DbSchema(tableSchemas, migrations, pgMigrations)
     export type Electric = ElectricClient<typeof schema>
