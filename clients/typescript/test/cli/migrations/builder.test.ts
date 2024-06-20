@@ -3,10 +3,11 @@ import fs from 'fs/promises'
 import path from 'path'
 import { buildMigrations } from '../../../src/cli/migrations/builder'
 import { sqliteBuilder } from '../../../src/migrators/query-builder'
+import { Relation } from '../../../src/client/model/schema'
 
 const migrationsFolder = path.join('./test/migrators/support/migrations')
 
-test('write migration to configuration file', async (t) => {
+test('write migration to configuration file and build DB schema', async (t) => {
   // compute absolute path to avoid differences between dynamic import and NodeJS' `fs` module
   const ogMigrationsFile = path.resolve(
     path.join('./test/cli/support/migrations.js')
@@ -32,7 +33,37 @@ test('write migration to configuration file', async (t) => {
   const ogMigrations = await importMigrations()
   t.deepEqual(ogMigrations, [])
 
-  await buildMigrations(migrationsFolder, testMigrationsFile, sqliteBuilder)
+  const dbDescription = await buildMigrations(
+    migrationsFolder,
+    testMigrationsFile,
+    sqliteBuilder
+  )
+
+  // Check that the generated DB description is correct
+  t.deepEqual(dbDescription, {
+    stars: {
+      fields: {
+        id: 'TEXT',
+        avatar_url: 'TEXT',
+        name: 'TEXT',
+        starred_at: 'TEXT',
+        username: 'TEXT',
+      },
+      relations: [
+        new Relation('beers', '', '', 'beers', 'beers_star_idTostars'),
+      ],
+    },
+    beers: {
+      fields: {
+        id: 'TEXT',
+        star_id: 'TEXT',
+      },
+      relations: [
+        new Relation('stars', 'star_id', 'id', 'stars', 'beers_star_idTostars'),
+      ],
+    },
+  })
+
   const newMigrations = await importMigrations()
   const versions = newMigrations.map((m: any) => m.version)
   t.deepEqual(versions, ['20230613112725_814', '20230613112735_992'])
