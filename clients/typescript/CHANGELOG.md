@@ -1,5 +1,11 @@
 # electric-sql
 
+## 0.12.2
+
+### Patch Changes
+
+- a94e860: Add clarifying documentation on behaviour `synced` promise returned by the `sync` API.
+
 ## 0.12.1
 
 ### Patch Changes
