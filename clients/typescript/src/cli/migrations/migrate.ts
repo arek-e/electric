@@ -310,9 +310,9 @@ async function bundleDbDescription(
   const dbDescriptionFile = path.join(outFolder, 'index.ts')
   const serializedDbDescription = serializeDbDescription(dbDescription)
   const dbDescriptionStr = dedent`
-    import migrations from './migrations';
-    import pgMigrations from './pg-migrations';
-    import { type TableSchemas, DbSchema, Relation, ElectricClient } from 'electric-sql/client/model';
+    import migrations from './migrations'
+    import pgMigrations from './pg-migrations'
+    import { type TableSchemas, DbSchema, Relation, ElectricClient } from 'electric-sql/client/model'
 
     const tableSchemas = ${serializedDbDescription} as TableSchemas
 
