@@ -6,12 +6,11 @@ import {
 } from '../../util'
 import { Converter } from '../conversions/converter'
 import { Transformation, transformFields } from '../conversions/input'
-import {
-  validate,
-  validateRecordTransformation,
-} from '../validation/validation'
+import { equallyTypedObjects } from '../util/functions'
+import { InvalidRecordTransformationError } from '../validation/errors/invalidRecordTransformationError'
+import { validateRecordTransformation } from '../validation/validation'
 import { DbSchema, Fields, TableSchemas } from './schema'
-import * as z from 'zod'
+import { dedent } from 'ts-dedent'
 
 export interface IReplicationTransformManager {
   setTableTransform(
@@ -24,7 +23,6 @@ export interface IReplicationTransformManager {
     record: DataRecord,
     transformRow: (row: T) => T,
     fields: Fields,
-    schema: z.ZodTypeAny | undefined,
     immutableFields: string[]
   ): DataRecord
 }
@@ -49,14 +47,12 @@ export class ReplicationTransformManager
     record: DataRecord,
     transformRow: (row: T) => T,
     fields: Fields,
-    schema: z.ZodTypeAny | undefined,
     immutableFields: string[]
   ): DataRecord {
     return transformTableRecord(
       record,
       transformRow,
       fields,
-      schema,
       this.converter,
       immutableFields
     )
@@ -78,7 +74,6 @@ export function transformTableRecord<T extends Record<string, unknown>>(
   record: DataRecord,
   transformRow: (row: T) => T,
   fields: Fields,
-  schema: z.ZodTypeAny | undefined,
   converter: Converter,
   immutableFields: string[]
 ): DataRecord {
@@ -93,15 +88,21 @@ export function transformTableRecord<T extends Record<string, unknown>>(
   // apply specified transformation
   const transformedParsedRow = transformRow(parsedRow as Readonly<T>)
 
-  // validate transformed row and convert back to raw record
-  // schema is only provided when using the DAL
-  // if schema is not provided, we skip validation
-  const validatedTransformedParsedRow =
-    schema !== undefined
-      ? validate(transformedParsedRow, schema)
-      : transformedParsedRow
+  // validate the transformed row
+  // types of all fields must be the same as in original row
+  const valid = equallyTypedObjects(parsedRow, transformedParsedRow)
+  if (!valid) {
+    throw new InvalidRecordTransformationError(
+      dedent`
+        Record transformation changed the type of at least one field in the record.
+        Original record: ${JSON.stringify(parsedRow, null, 2)}
+        Transformed record: ${JSON.stringify(transformedParsedRow, null, 2)}
+      `
+    )
+  }
+
   const transformedRecord = transformFields(
-    validatedTransformedParsedRow,
+    transformedParsedRow,
     fields,
     converter,
     Transformation.Encode
@@ -123,8 +124,7 @@ export function setReplicationTransform<
   dbDescription: DbSchema<TableSchemas>,
   replicationTransformManager: IReplicationTransformManager,
   qualifiedTableName: QualifiedTablename,
-  i: ReplicatedRowTransformer<T>,
-  schema?: z.ZodTypeAny
+  i: ReplicatedRowTransformer<T>
 ): void {
   const tableName = qualifiedTableName.tablename
 
@@ -162,7 +162,6 @@ export function setReplicationTransform<
         record,
         i.transformInbound,
         fields,
-        schema,
         immutableFields
       ),
 
@@ -171,7 +170,6 @@ export function setReplicationTransform<
         record,
         i.transformOutbound,
         fields,
-        schema,
         immutableFields
       ),
   })

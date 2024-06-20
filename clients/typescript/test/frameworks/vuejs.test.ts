@@ -28,7 +28,7 @@ const { provideElectric, injectElectric } =
   makeElectricDependencyInjector<Electric>()
 
 const test = anyTest as TestFn<{
-  dal: Electric
+  electric: Electric
   adapter: DatabaseAdapter
   notifier: Notifier
 }>
@@ -46,7 +46,7 @@ test.beforeEach((t) => {
     {} as SatelliteOpts
   )
   const registry = new MockRegistry()
-  const dal = ElectricClient.create(
+  const electric = ElectricClient.create(
     'test.db',
     schema,
     adapter,
@@ -55,17 +55,17 @@ test.beforeEach((t) => {
     registry,
     'SQLite'
   )
-  dal.db.Items.sync()
+  electric.sync.subscribe({ table: 'Items' })
 
-  t.context = { dal, adapter, notifier }
+  t.context = { electric, adapter, notifier }
 })
 
 test('useLiveQuery returns query results', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
 
   const query = 'select i from bars'
   adapter.query = async () => [{ count: 2 }]
-  const liveQuery = dal.db.liveRawQuery({ sql: query })
+  const liveQuery = electric.db.liveRawQuery({ sql: query })
 
   const wrapper = shallowMount({
     template: '<div>count: {{ count }}</div>',
@@ -111,11 +111,11 @@ test('useLiveQuery returns error when query errors', async (t) => {
 })
 
 test('useLiveQuery re-runs query when data changes', async (t) => {
-  const { dal, adapter, notifier } = t.context
+  const { electric, adapter, notifier } = t.context
 
   const query = 'select foo from bars'
   adapter.query = async () => [{ count: 2 }]
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
@@ -153,10 +153,10 @@ test('useLiveQuery re-runs query when data changes', async (t) => {
 })
 
 test('useLiveQuery never runs query if unmounted immediately', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
   adapter.query = async () => [{ count: 2 }]
   const query = 'select foo from bars'
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
@@ -176,11 +176,11 @@ test('useLiveQuery never runs query if unmounted immediately', async (t) => {
 })
 
 test('useLiveQuery unsubscribes to data changes when unmounted', async (t) => {
-  const { dal, adapter, notifier } = t.context
+  const { electric, adapter, notifier } = t.context
 
   const query = 'select foo from bars'
   adapter.query = async () => [{ count: 2 }]
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
@@ -215,11 +215,11 @@ test('useLiveQuery unsubscribes to data changes when unmounted', async (t) => {
 })
 
 test('useLiveQuery ignores results if unmounted whilst re-querying', async (t) => {
-  const { dal, adapter, notifier } = t.context
+  const { electric, adapter, notifier } = t.context
 
   const query = 'select foo from bars'
   adapter.query = async () => [{ count: 2 }]
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
@@ -255,7 +255,7 @@ test('useLiveQuery ignores results if unmounted whilst re-querying', async (t) =
 })
 
 test('useLiveQuery re-runs reffed query when live query arguments change', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
 
   adapter.query = async ({ sql }) => [{ count: sql.includes('foo') ? 2 : 3 }]
   const wrapper = shallowMount({
@@ -264,7 +264,7 @@ test('useLiveQuery re-runs reffed query when live query arguments change', async
       const columnToSelect = ref('foo')
       const { results, updatedAt } = useLiveQuery(
         computed(() =>
-          dal.db.liveRawQuery({
+          electric.db.liveRawQuery({
             sql: `select ${columnToSelect.value} from bars`,
           })
         )
@@ -288,7 +288,7 @@ test('useLiveQuery re-runs reffed query when live query arguments change', async
 })
 
 test('useLiveQuery re-runs func query when live query arguments change', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
 
   adapter.query = async ({ sql }) => [{ count: sql.includes('foo') ? 2 : 3 }]
   const wrapper = shallowMount({
@@ -296,7 +296,7 @@ test('useLiveQuery re-runs func query when live query arguments change', async (
     setup() {
       const columnToSelect = ref('foo')
       const { results, updatedAt } = useLiveQuery(() =>
-        dal.db.liveRawQuery({
+        electric.db.liveRawQuery({
           sql: `select ${columnToSelect.value} from bars`,
         })
       )
@@ -319,7 +319,7 @@ test('useLiveQuery re-runs func query when live query arguments change', async (
 })
 
 test('useLiveQuery re-runs static query when dependencies change', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
 
   adapter.query = async () => [{ count: 2 }]
   const wrapper = shallowMount({
@@ -327,7 +327,7 @@ test('useLiveQuery re-runs static query when dependencies change', async (t) => 
     setup() {
       const arbitraryDependency = ref('a')
       const { results, updatedAt } = useLiveQuery(
-        dal.db.liveRawQuery({
+        electric.db.liveRawQuery({
           sql: `select foo from bars`,
         }),
         [arbitraryDependency]
@@ -351,13 +351,13 @@ test('useLiveQuery re-runs static query when dependencies change', async (t) => 
 })
 
 test('dependency injection works without reference to client', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
   adapter.query = async () => [{ count: 2 }]
 
   const ProviderComponent = defineComponent({
     template: '<div v-if={show}><slot/></div>',
     setup() {
-      provideElectric(dal)
+      provideElectric(electric)
       return { show: true }
     },
   })
@@ -386,7 +386,7 @@ test('dependency injection works without reference to client', async (t) => {
 })
 
 test('dependency injection works with shallow reference to client', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
   adapter.query = async () => [{ count: 2 }]
 
   const ProviderComponent = defineComponent({
@@ -394,7 +394,7 @@ test('dependency injection works with shallow reference to client', async (t) =>
     setup() {
       const client = shallowRef<Electric>()
       const show = computed(() => client.value !== undefined)
-      setTimeout(() => (client.value = dal), 200)
+      setTimeout(() => (client.value = electric), 200)
       provideElectric(client)
       return { show }
     },
@@ -434,7 +434,7 @@ test('dependency injection works with shallow reference to client', async (t) =>
 })
 
 test('dependency injection works with deep reference to client but is proxy', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
   adapter.query = async () => [{ count: 2 }]
 
   const ProviderComponent = defineComponent({
@@ -442,7 +442,7 @@ test('dependency injection works with deep reference to client but is proxy', as
     setup() {
       const client = ref<Electric>()
       const show = computed(() => client.value !== undefined)
-      setTimeout(() => (client.value = dal), 200)
+      setTimeout(() => (client.value = electric), 200)
       provideElectric(client)
       return { show }
     },
@@ -481,12 +481,12 @@ test('dependency injection works with deep reference to client but is proxy', as
 })
 
 test('useConnectivityState defaults to disconnected', async (t) => {
-  const { dal } = t.context
+  const { electric } = t.context
 
   const ProviderComponent = defineComponent({
     template: '<div v-if=show><slot/></div>',
     setup() {
-      const client = shallowRef<Electric>(dal)
+      const client = shallowRef<Electric>(electric)
       const show = computed(() => client.value !== undefined)
       provideElectric(client)
       return { show }
@@ -512,12 +512,12 @@ test('useConnectivityState defaults to disconnected', async (t) => {
 })
 
 test('useConnectivityState handles connectivity events', async (t) => {
-  const { dal, notifier } = t.context
+  const { electric, notifier } = t.context
 
   const ProviderComponent = defineComponent({
     template: '<div v-if=show><slot/></div>',
     setup() {
-      const client = shallowRef<Electric>(dal)
+      const client = shallowRef<Electric>(electric)
       const show = computed(() => client.value !== undefined)
       provideElectric(client)
       return { show }
@@ -550,12 +550,12 @@ test('useConnectivityState handles connectivity events', async (t) => {
 })
 
 test('useConnectivityState ignores connectivity events after unmounting', async (t) => {
-  const { dal, notifier } = t.context
+  const { electric, notifier } = t.context
 
   const ProviderComponent = defineComponent({
     template: '<div v-if=show><slot/></div>',
     setup() {
-      const client = shallowRef<Electric>(dal)
+      const client = shallowRef<Electric>(electric)
       const show = computed(() => client.value !== undefined)
       provideElectric(client)
       return { show }

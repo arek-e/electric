@@ -154,16 +154,15 @@ export function createRelationsFromAllTables(
   return groupedRelations
 }
 
-// TODO: remove the DbSchema type from the DAL and use this one instead
-export type DbSchema = Record<
+export type MinimalDbSchema = Record<
   TableName,
   { fields: Fields; relations: Array<Relation> }
 >
 export function createDbDescription(
   tables: Array<SatOpMigrate_Table>
-): DbSchema {
+): MinimalDbSchema {
   const relations = createRelationsFromAllTables(tables)
-  const dbDescription: DbSchema = {}
+  const dbDescription: MinimalDbSchema = {}
   tables.forEach((table) => {
     const tableName = table.name
     const rels = relations.get(tableName) ?? []

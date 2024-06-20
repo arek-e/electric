@@ -39,7 +39,7 @@ const ctxInformation = makeElectricContext<Electric>()
 const ElectricProvider = ctxInformation.ElectricProvider
 
 const test = anyTest as TestFn<{
-  dal: Electric
+  electric: Electric
   adapter: DatabaseAdapter
   notifier: Notifier
 }>
@@ -57,7 +57,7 @@ test.beforeEach((t) => {
     {} as SatelliteOpts
   )
   const registry = new MockRegistry()
-  const dal = ElectricClient.create(
+  const electric = ElectricClient.create(
     'test.db',
     schema,
     adapter,
@@ -67,59 +67,21 @@ test.beforeEach((t) => {
     'SQLite'
   )
 
-  dal.db.Items.sync()
+  electric.sync.subscribe({ table: 'Items' })
 
-  t.context = { dal, adapter, notifier }
-})
-
-test('liveFirst arguments are optional', async (t) => {
-  const { dal, adapter } = t.context
-  adapter._query = async () => [{ value: 'potato' }]
-
-  const liveQuery = dal.db.Items.liveFirst() // this one already fails because later down `result.current` contains an error...
-
-  const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
-  }
-
-  const { result } = renderHook(() => useLiveQuery(liveQuery), { wrapper })
-
-  await waitFor(() => assert(result.current.updatedAt !== undefined))
-
-  const items = await dal.db.Items.findFirst({}) // this one fails with the same reason.. not sure why...
-
-  t.deepEqual(result.current.results, items)
-})
-
-test('liveMany arguments are optional', async (t) => {
-  const { dal, adapter } = t.context
-  adapter._query = async () => [{ value: 'potato' }]
-
-  const liveQuery = dal.db.Items.liveMany() // this one already fails because later down `result.current` contains an error...
-
-  const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
-  }
-
-  const { result } = renderHook(() => useLiveQuery(liveQuery), { wrapper })
-
-  await waitFor(() => assert(result.current.updatedAt !== undefined))
-
-  const items = await dal.db.Items.findMany({}) // this one fails with the same reason.. not sure why...
-
-  t.deepEqual(result.current.results, items)
+  t.context = { electric, adapter, notifier }
 })
 
 test('useLiveQuery returns query results', async (t) => {
-  const { dal, adapter } = t.context
+  const { electric, adapter } = t.context
 
   const query = 'select i from bars'
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const { result } = renderHook(() => useLiveQuery(liveQuery), { wrapper })
@@ -129,10 +91,10 @@ test('useLiveQuery returns query results', async (t) => {
 })
 
 test('useLiveQuery returns error when query errors', async (t) => {
-  const { notifier, dal } = t.context
+  const { notifier, electric } = t.context
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const errorLiveQuery = async () => {
@@ -155,15 +117,15 @@ test('useLiveQuery returns error when query errors', async (t) => {
 })
 
 test('useLiveQuery re-runs query when data changes', async (t) => {
-  const { dal, notifier } = t.context
+  const { electric, notifier } = t.context
 
   const query = 'select foo from bars'
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const { result } = renderHook(() => useLiveQuery(liveQuery), { wrapper })
@@ -187,16 +149,16 @@ test('useLiveQuery re-runs query when data changes', async (t) => {
 })
 
 test('useLiveQuery re-runs query when *aliased* data changes', async (t) => {
-  const { dal, notifier } = t.context
+  const { electric, notifier } = t.context
 
   await notifier.attach('baz.db', 'baz')
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const query = 'select foo from baz.bars'
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
@@ -221,15 +183,15 @@ test('useLiveQuery re-runs query when *aliased* data changes', async (t) => {
 })
 
 test('useLiveQuery never sets results if unmounted immediately', async (t) => {
-  const { dal } = t.context
+  const { electric } = t.context
 
   const query = 'select foo from bars'
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const { result, unmount } = renderHook(() => useLiveQuery(liveQuery), {
@@ -242,15 +204,15 @@ test('useLiveQuery never sets results if unmounted immediately', async (t) => {
 })
 
 test('useLiveQuery unsubscribes to data changes when unmounted', async (t) => {
-  const { dal, notifier } = t.context
+  const { electric, notifier } = t.context
 
   const query = 'select foo from bars'
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const { result, unmount } = renderHook(() => useLiveQuery(liveQuery), {
@@ -277,10 +239,10 @@ test('useLiveQuery unsubscribes to data changes when unmounted', async (t) => {
 })
 
 test('useLiveQuery ignores results if unmounted whilst re-querying', async (t) => {
-  const { dal, notifier } = t.context
+  const { electric, notifier } = t.context
 
   const query = 'select foo from bars'
-  const liveQuery = dal.db.liveRawQuery({
+  const liveQuery = electric.db.liveRawQuery({
     sql: query,
   })
   const slowLiveQuery = async () => {
@@ -294,7 +256,7 @@ test('useLiveQuery ignores results if unmounted whilst re-querying', async (t) =
   )
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const { result, unmount } = renderHook(() => useLiveQuery(slowLiveQuery), {
@@ -320,10 +282,10 @@ test('useLiveQuery ignores results if unmounted whilst re-querying', async (t) =
 })
 
 test('useConnectivityState defaults to disconnected', async (t) => {
-  const { dal } = t.context
+  const { electric } = t.context
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const { result } = renderHook(() => useConnectivityState(), { wrapper })
@@ -333,10 +295,10 @@ test('useConnectivityState defaults to disconnected', async (t) => {
 })
 
 test('useConnectivityState handles connectivity events', async (t) => {
-  const { dal, notifier } = t.context
+  const { electric, notifier } = t.context
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   const { result } = renderHook(() => useConnectivityState(), { wrapper })
@@ -348,10 +310,10 @@ test('useConnectivityState handles connectivity events', async (t) => {
 })
 
 test('useConnectivityState ignores connectivity events after unmounting', async (t) => {
-  const { dal, notifier } = t.context
+  const { electric, notifier } = t.context
 
   const wrapper: FC = ({ children }) => {
-    return <ElectricProvider db={dal}>{children}</ElectricProvider>
+    return <ElectricProvider db={electric}>{children}</ElectricProvider>
   }
 
   notifier.connectivityStateChanged('test.db', { status: 'disconnected' })

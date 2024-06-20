@@ -10,7 +10,10 @@ import {
 import { isObject } from '../../util'
 import { QueryBuilder } from '../../migrators/query-builder'
 import { TableName } from '../../client/model/schema'
-import { DbSchema, createDbDescription } from '../../client/util/relations'
+import {
+  MinimalDbSchema,
+  createDbDescription,
+} from '../../client/util/relations'
 import { SatOpMigrate_Table } from '../../_generated/protocol/satellite'
 
 /*
@@ -41,7 +44,7 @@ export async function buildMigrations(
   migrationsFolder: string,
   migrationsFile: string,
   builder: QueryBuilder
-): Promise<DbSchema> {
+): Promise<MinimalDbSchema> {
   try {
     const { migrations, dbDescription } = await loadMigrations(
       migrationsFolder,
@@ -85,7 +88,7 @@ export async function getMigrationNames(
 export async function loadMigrations(
   migrationsFolder: string,
   builder: QueryBuilder
-): Promise<{ migrations: Migration[]; dbDescription: DbSchema }> {
+): Promise<{ migrations: Migration[]; dbDescription: MinimalDbSchema }> {
   const dirNames = await getMigrationNames(migrationsFolder)
   const migrationPaths = dirNames.map((dirName) =>
     path.join(migrationsFolder, dirName, 'metadata.json')

@@ -1,5 +1,5 @@
 import { dedent } from 'ts-dedent'
-import { DbSchema } from '../../client/util/relations'
+import { MinimalDbSchema } from '../../client/util/relations'
 
 /**
  * Custom serialization function that serializes the DB description
@@ -8,7 +8,7 @@ import { DbSchema } from '../../client/util/relations'
  * (as it instantiates `Relation` objects)
  * that is meant to be imported by the Electric application.
  */
-export function serializeDbDescription(dbDescription: DbSchema) {
+export function serializeDbDescription(dbDescription: MinimalDbSchema) {
   const tables = Object.entries(dbDescription)
     .map(([table, schema]) => {
       return dedent`

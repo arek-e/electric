@@ -18,7 +18,7 @@ import { stop } from '../docker-commands/command-stop'
 import { withConfig } from '../configure/command-with-config'
 import { pgBuilder, sqliteBuilder } from '../../migrators/query-builder'
 import { Dialect } from '../../migrators/query-builder/builder'
-import { DbSchema } from '../../client/util/relations'
+import { MinimalDbSchema } from '../../client/util/relations'
 import { serializeDbDescription } from '../util/serialize'
 
 // Rather than run `npx prisma` we resolve the path to the prisma binary so that
@@ -348,7 +348,10 @@ async function _generate(opts: Omit<GeneratorOptions, 'watch'>) {
   }
 }
 
-async function bundleDbDescription(dbDescription: DbSchema, outFolder: string) {
+async function bundleDbDescription(
+  dbDescription: MinimalDbSchema,
+  outFolder: string
+) {
   const dbDescriptionFile = path.join(outFolder, 'index.ts')
   const serializedDbDescription = serializeDbDescription(dbDescription)
   const dbDescriptionStr = dedent`
