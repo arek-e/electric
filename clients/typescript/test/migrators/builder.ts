@@ -360,14 +360,7 @@ export const builderTests = (test: TestFn<ContextType>) => {
           username: 'TEXT',
         },
         relations: [
-          new Relation(
-            'beers',
-            '',
-            '',
-            'beers',
-            'beers_star_idTostars',
-            'many'
-          ),
+          new Relation('beers', '', '', 'beers', 'beers_star_idTostars'),
         ],
       },
       beers: {
@@ -381,8 +374,7 @@ export const builderTests = (test: TestFn<ContextType>) => {
             'star_id',
             'id',
             'stars',
-            'beers_star_idTostars',
-            'one'
+            'beers_star_idTostars'
           ),
         ],
       },

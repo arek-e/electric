@@ -49,8 +49,7 @@ function makeRelation(
     childCol,
     parentCol,
     parentTable,
-    relationName,
-    'one'
+    relationName
   )
 }
 
@@ -121,8 +120,7 @@ export function createRelationsFromTable(
       '',
       '',
       childTable,
-      relation.relationName,
-      'many' // TODO: what about 1-to-1 relations? Do we still need this arity?
+      relation.relationName
     )
 
     // Store the backward relation in the `groupedRelations` map

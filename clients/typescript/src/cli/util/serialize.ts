@@ -29,8 +29,7 @@ export function serializeDbDescription(dbDescription: MinimalDbSchema) {
                 "${r.fromField}",
                 "${r.toField}",
                 "${r.relatedTable}",
-                "${r.relationName}",
-                "${r.relatedObjects}"
+                "${r.relationName}"
               )
             `
             })

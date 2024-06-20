@@ -32,10 +32,7 @@ export class Relation {
     public fromField: FieldName,
     public toField: FieldName,
     public relatedTable: TableName,
-    public relationName: RelationName,
-    // 'one' if this object can have only one related object,
-    // 'many' if this object potentially has many related objects
-    public relatedObjects: Arity
+    public relationName: RelationName
   ) {}
 
   isIncomingRelation(): boolean {

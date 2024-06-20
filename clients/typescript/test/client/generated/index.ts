@@ -18,8 +18,8 @@ export const tableSchemas = {
       meta: "TEXT"
     },
     relations: [
-      new Relation("posts", "", "", "Post", "PostToUser", "many"),
-      new Relation("profile", "", "", "Profile", "ProfileToUser", "one"),
+      new Relation("posts", "", "", "Post", "PostToUser"),
+      new Relation("profile", "", "", "Profile", "ProfileToUser"),
     ],
   } as TableSchema,
   Post: {
@@ -31,7 +31,7 @@ export const tableSchemas = {
       "authorId": "INT4"
     },
     relations: [
-      new Relation("author", "authorId", "id", "User", "PostToUser", "one"),
+      new Relation("author", "authorId", "id", "User", "PostToUser"),
     ],
   } as TableSchema,
   Profile: {
@@ -43,8 +43,8 @@ export const tableSchemas = {
       "imageId": "TEXT"
     },
     relations: [
-      new Relation("user", "userId", "id", "User", "ProfileToUser", "one"),
-      new Relation("image", "imageId", "id", "ProfileImage", "ProfileToProfileImage", "one"),
+      new Relation("user", "userId", "id", "User", "ProfileToUser"),
+      new Relation("image", "imageId", "id", "ProfileImage", "ProfileToProfileImage"),
     ],
   } as TableSchema,
   ProfileImage: {
@@ -53,7 +53,7 @@ export const tableSchemas = {
       "image": "BYTEA"
     },
     relations: [
-      new Relation("profile", "", "", "Profile", "ProfileToProfileImage", "one"),
+      new Relation("profile", "", "", "Profile", "ProfileToProfileImage"),
     ],
   } as TableSchema,
   DataTypes: {
@@ -76,7 +76,7 @@ export const tableSchemas = {
       "relatedId": "INT4"
     },
     relations: [
-      new Relation("related", "relatedId", "id", "Dummy", "DataTypesToDummy", "one"),
+      new Relation("related", "relatedId", "id", "Dummy", "DataTypesToDummy"),
     ],
   } as TableSchema,
   Dummy: {
@@ -85,7 +85,7 @@ export const tableSchemas = {
       "timestamp": "TIMESTAMP"
     },
     relations: [
-      new Relation("datatype", "", "", "DataTypes", "DataTypesToDummy", "many"),
+      new Relation("datatype", "", "", "DataTypes", "DataTypesToDummy"),
     ],
   } as TableSchema
 }
