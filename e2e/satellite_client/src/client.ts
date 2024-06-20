@@ -9,12 +9,9 @@ import { electrify as electrifySqlite } from 'electric-sql/node'
 import { electrify as electrifyPg } from 'electric-sql/node-postgres'
 import { v4 as uuidv4 } from 'uuid'
 import {
-  schema as dalSchema,
+  schema,
   Electric,
-  ColorType as Color,
 } from './generated/client'
-import { schema as noDalSchema } from './generated/client/db-description'
-export { JsonNull } from './generated/client'
 import { globalRegistry } from 'electric-sql/satellite'
 import { QualifiedTablename, SatelliteErrorCode } from 'electric-sql/util'
 import { Shape } from 'electric-sql/satellite'
@@ -28,9 +25,7 @@ import {
   sqliteConverter,
   PgBasicType
 } from 'electric-sql/client/conversions'
-import type { AnyTable, AnyTableSchema } from 'electric-sql/client/model'
 import { Row } from 'electric-sql/util'
-import { dedent } from 'ts-dedent'
 
 setLogLevel('DEBUG')
 
@@ -39,8 +34,6 @@ type DB = PgDatabase | BetterSqliteDatabase
 const builder: QueryBuilder =
   dialect() === 'Postgres' ? pgBuilder : sqliteBuilder
 const converter = dialect() === 'Postgres' ? postgresConverter : sqliteConverter
-const withDal = dal() // whether to use the DAL or not
-const schema = withDal ? dalSchema : noDalSchema
 
 function dialect(): 'Postgres' | 'SQLite' {
   switch (process.env.DIALECT) {
@@ -52,23 +45,6 @@ function dialect(): 'Postgres' | 'SQLite' {
       return 'SQLite'
     default:
       throw new Error(`Unrecognised dialect: ${process.env.DIALECT}`)
-  }
-}
-
-function dal(): boolean {
-  switch (process.env.DAL?.toLowerCase()) {
-    case 'false':
-      console.log('Running without DAL')
-      return false
-    case 'true':
-    case '':
-    case undefined:
-      console.log('Running with DAL')
-      return true
-    default:
-      throw new Error(
-        `Illegal value for DAL option: ${process.env.DAL}`
-      )
   }
 }
 
@@ -191,16 +167,11 @@ export const set_subscribers = (db: Electric) => {
 
 export const syncTableWithShape = async (
   electric: Electric,
-  table: keyof Electric['db'],
+  table: keyof typeof schema.tables,
   shape: Record<string, any>
 ) => {
-  if (withDal) {
-    const { synced } = await (electric.db[table] as AnyTable).sync(shape)
-    return await synced
-  } else {
-    const { synced } = await electric.sync.subscribe({ ...shape, table })
-    return await synced
-  }
+  const { synced } = await electric.sync.subscribe({ ...shape, table })
+  return await synced
 }
 
 export const syncItemsTable = (electric: Electric, shapeFilter: string) => {
@@ -239,29 +210,14 @@ export const get_rows = (electric: Electric, table: string) => {
   return electric.db.rawQuery({ sql: `SELECT * FROM ${table};` })
 }
 
-const get_timestamps_dal = (electric: Electric) => {
-  return electric.db.timestamps.findMany()
-}
-
-const get_timestamps_raw = (electric: Electric) => {
+export const get_timestamps = (electric: Electric) => {
   return electric.db.rawQuery({ sql: 'SELECT * FROM timestamps;' })
 }
-
-export const get_timestamps = withDal ? get_timestamps_dal : get_timestamps_raw
 
 type Timestamp = { id: string; created_at: Date; updated_at: Date }
 type Datetime = { id: string; d: Date; t: Date }
 
-const write_timestamp_dal = (
-  electric: Electric,
-  timestamp: Timestamp
-) => {
-  return electric.db.timestamps.create({
-    data: timestamp,
-  })
-}
-
-const write_timestamp_raw = (
+export const write_timestamp = (
   electric: Electric,
   timestamp: Timestamp
 ) => {
@@ -281,17 +237,7 @@ const write_timestamp_raw = (
   })
 }
 
-export const write_timestamp = withDal
-  ? write_timestamp_dal
-  : write_timestamp_raw
-
-const write_datetime_dal = (electric: Electric, datetime: Datetime) => {
-  return electric.db.datetimes.create({
-    data: datetime,
-  })
-}
-
-const write_datetime_raw = (electric: Electric, datetime: Datetime) => {
+export const write_datetime = (electric: Electric, datetime: Datetime) => {
   const d = converter.encode(datetime.d, schema.tables.datetimes.fields.d)
   const t = converter.encode(datetime.t, schema.tables.datetimes.fields.t)
   return electric.adapter.run({
@@ -302,20 +248,7 @@ const write_datetime_raw = (electric: Electric, datetime: Datetime) => {
   })
 }
 
-export const write_datetime = withDal ? write_datetime_dal : write_datetime_raw
-
-const get_timestamp_dal = (
-  electric: Electric,
-  id: string
-): Promise<Timestamp | null> => {
-  return electric.db.timestamps.findUnique({
-    where: {
-      id: id,
-    },
-  })
-}
-
-const get_timestamp_raw = async (
+export const get_timestamp = async (
   electric: Electric,
   id: string
 ): Promise<Timestamp | null> => {
@@ -333,7 +266,7 @@ const get_timestamp_raw = async (
 const decodeRow = <T>(row: Row, table: keyof typeof schema.tables): T => {
   return Object.fromEntries(
     Object.entries(row).map(([key, value]) => {
-      const pgType = (schema.tables[table] as unknown as AnyTableSchema).fields[key]
+      const pgType = schema.tables[table].fields[key]
       const decodedValue = converter.decode(value, pgType)
       return [key, decodedValue]
     })
@@ -344,22 +277,7 @@ const decodeRows = <T>(rows: Array<Row>, table: keyof typeof schema.tables): T[]
   return rows.map((row) => decodeRow<T>(row, table))
 }
 
-export const get_timestamp = withDal ? get_timestamp_dal : get_timestamp_raw
-
-const get_datetime_dal = async (
-  electric: Electric,
-  id: string
-): Promise<Datetime | null> => {
-  const datetime = await electric.db.datetimes.findUnique({
-    where: {
-      id: id,
-    },
-  })
-  console.log(`Found date time?:\n${JSON.stringify(datetime, undefined, 2)}`)
-  return datetime
-}
-
-const get_datetime_raw = async (
+export const get_datetime = async (
   electric: Electric,
   id: string
 ): Promise<Datetime | null> => {
@@ -375,8 +293,6 @@ const get_datetime_raw = async (
   console.log(`Found date time?:\n${JSON.stringify(datetime, undefined, 2)}`)
   return datetime
 }
-
-export const get_datetime = withDal ? get_datetime_dal : get_datetime_raw
 
 export const assert_timestamp = async (
   electric: Electric,
@@ -427,16 +343,7 @@ export const check_datetime = (
   )
 }
 
-const write_bool_dal = (electric: Electric, id: string, b: boolean) => {
-  return electric.db.bools.create({
-    data: {
-      id,
-      b,
-    },
-  })
-}
-
-const write_bool_raw = async (electric: Electric, id: string, b: boolean) => {
+export const write_bool = async (electric: Electric, id: string, b: boolean) => {
   const bool = converter.encode(b, schema.tables.bools.fields.b)
   const [ row ] = await electric.adapter.query({
     sql: `INSERT INTO bools (id, b) VALUES (${builder.makePositionalParam(
@@ -447,18 +354,7 @@ const write_bool_raw = async (electric: Electric, id: string, b: boolean) => {
   return decodeRow<{ id: string; b: boolean }>(row, 'bools')
 }
 
-export const write_bool = withDal ? write_bool_dal : write_bool_raw
-
-const get_bool_dal = async (electric: Electric, id: string) => {
-  const row = await electric.db.bools.findUnique({
-    where: {
-      id: id,
-    },
-  })
-  return row?.b
-}
-
-const get_bool_raw = async (electric: Electric, id: string) => {
+export const get_bool = async (electric: Electric, id: string) => {
   const res = await electric.db.rawQuery({
     sql: `SELECT b FROM bools WHERE id = ${builder.makePositionalParam(1)};`,
     args: [id],
@@ -469,18 +365,10 @@ const get_bool_raw = async (electric: Electric, id: string) => {
   return row?.b
 }
 
-export const get_bool = withDal ? get_bool_dal : get_bool_raw
-
-const get_datetimes_dal = (electric: Electric) => {
-  return electric.db.datetimes.findMany()
-}
-
-const get_datetimes_raw = async (electric: Electric) => {
+export const get_datetimes = async (electric: Electric) => {
   const rows = await electric.db.rawQuery({ sql: 'SELECT * FROM datetimes;' })
   return decodeRows<Datetime>(rows, 'datetimes')
 }
-
-export const get_datetimes = withDal ? get_datetimes_dal : get_datetimes_raw
 
 type Item = {
   id: string
@@ -491,41 +379,17 @@ type Item = {
   intvalue_null_default: number,
 }
 
-const get_items_dal = (electric: Electric) => {
-  return electric.db.items.findMany()
-}
-
-const get_items_raw = async (electric: Electric) => {
+export const get_items = async (electric: Electric) => {
   const rows = await electric.db.rawQuery({ sql: 'SELECT * FROM items;' })
   return decodeRows<Item>(rows, 'items')
 }
 
-export const get_items = withDal ? get_items_dal : get_items_raw
-
-export const get_item_ids_dal = (electric: Electric) => {
-  return electric.db.items.findMany({
-    select: {
-      id: true,
-    },
-  })
-}
-
-const get_item_ids_raw = async (electric: Electric) => {
+export const get_item_ids_raw = async (electric: Electric) => {
   const rows = await electric.db.rawQuery({ sql: 'SELECT id FROM items;' })
   return rows as Array<Pick<Item, 'id'>>
 }
 
-export const get_item_ids = withDal ? get_item_ids_dal : get_item_ids_raw
-
-const get_uuid_dal = (electric: Electric, id: string) => {
-  return electric.db.uuids.findUnique({
-    where: {
-      id: id,
-    },
-  })
-}
-
-const get_uuid_raw = async (electric: Electric, id: string) => {
+export const get_uuid = async (electric: Electric, id: string) => {
   const res = await electric.db.rawQuery({
     sql: `SELECT * FROM uuids WHERE id = ${builder.makePositionalParam(1)};`,
     args: [id],
@@ -536,54 +400,17 @@ const get_uuid_raw = async (electric: Electric, id: string) => {
   return null
 }
 
-export const get_uuid = withDal ? get_uuid_dal : get_uuid_raw
-
-const get_uuids_dal = (electric: Electric) => {
-  return electric.db.uuids.findMany()
-}
-
-const get_uuids_raw = async (electric: Electric) => {
+export const get_uuids = async (electric: Electric) => {
   return electric.db.rawQuery({ sql: 'SELECT * FROM uuids;' })
 }
 
-export const get_uuids = withDal ? get_uuids_dal : get_uuids_raw
-
-const write_uuid_dal = (electric: Electric, id: string) => {
-  return electric.db.uuids.create({
-    data: {
-      id: id,
-    },
-  })
-}
-
-const write_uuid_raw = async (electric: Electric, id: string) => {
+export const write_uuid = async (electric: Electric, id: string) => {
   const [ row ] = await electric.adapter.query({
     sql: `INSERT INTO uuids (id) VALUES (${builder.makePositionalParam(1)}) RETURNING *;`,
     args: [id],
   })
   return row
 }
-
-export const write_uuid = withDal ? write_uuid_dal : write_uuid_raw
-
-// This function is only used for testing that the DAL rejects invalid UUIDs
-// If we don't run the DAL we just print the error the DAL would throw
-export const write_invalid_uuid = withDal ? write_uuid_dal : () => {
-  console.log(dedent`
-    Uncaught:
-    [
-      {
-        "validation": "uuid",
-        "code": "invalid_string",
-        "message": "Invalid uuid",
-        "path": [
-          "data",
-          "id"
-        ]
-      }
-    ]
-  `)
-} // 
 
 type Int = {
   id: string
@@ -592,15 +419,7 @@ type Int = {
   i8: bigint
 }
 
-const get_int_dal = (electric: Electric, id: string) => {
-  return electric.db.ints.findUnique({
-    where: {
-      id: id,
-    },
-  })
-}
-
-const get_int_raw = async (electric: Electric, id: string) => {
+export const get_int = async (electric: Electric, id: string) => {
   // Need to cast i8 to text because better-sqlite3 does return a BigInt by default
   // unless we activate BigInt support but then it returns all numbers as BigInt.
   // The DAL applies the same cast when reading from an INT8 table.
@@ -615,21 +434,7 @@ const get_int_raw = async (electric: Electric, id: string) => {
   return null
 }
 
-export const get_int = withDal ? get_int_dal : get_int_raw
-
-const write_int_dal = (
-  electric: Electric,
-  id: string,
-  i2: number,
-  i4: number,
-  i8: number | bigint
-) => {
-  return electric.db.ints.create({
-    data: { id, i2, i4, i8 },
-  })
-}
-
-const write_int_raw = async (
+export const write_int = async (
   electric: Electric,
   id: string,
   i2: number,
@@ -664,23 +469,13 @@ const write_int_raw = async (
   return decodeRow<Int>(row, 'ints')
 }
 
-export const write_int = withDal ? write_int_dal : write_int_raw
-
 type Float = {
   id: string
   f4: number
   f8: number
 }
 
-const get_float_dal = (electric: Electric, id: string) => {
-  return electric.db.floats.findUnique({
-    where: {
-      id: id,
-    },
-  })
-}
-
-const get_float_raw = async (electric: Electric, id: string) => {
+export const get_float = async (electric: Electric, id: string) => {
   const rows = await electric.db.rawQuery({
     sql: `SELECT * FROM floats WHERE id = ${builder.makePositionalParam(1)};`,
     args: [id],
@@ -692,24 +487,7 @@ const get_float_raw = async (electric: Electric, id: string) => {
   return null
 }
 
-export const get_float = withDal ? get_float_dal : get_float_raw
-
-const write_float_dal = (
-  electric: Electric,
-  id: string,
-  f4: number,
-  f8: number
-) => {
-  return electric.db.floats.create({
-    data: {
-      id,
-      f4,
-      f8,
-    },
-  })
-}
-
-const write_float_raw = async (
+export const write_float = async (
   electric: Electric,
   id: string,
   f4: number,
@@ -721,8 +499,6 @@ const write_float_raw = async (
   })
   return decodeRow<Float>(row, 'floats')
 }
-
-export const write_float = withDal ? write_float_dal : write_float_raw
 
 export const get_json_raw = async (electric: Electric, id: string) => {
   const res = (await electric.db.rawQuery({
@@ -747,19 +523,7 @@ export const get_jsonb_raw = async (electric: Electric, id: string) => {
   return JSON.parse(js) // SQLite stores JSON as string so parse it
 }
 
-const get_json_dal = async (electric: Electric, id: string) => {
-  const res = await electric.db.jsons.findUnique({
-    where: {
-      id: id,
-    },
-    select: {
-      id: true,
-    },
-  })
-  return res
-}
-
-const get_json_raw_internal = async (electric: Electric, id: string) => {
+export const get_json = async (electric: Electric, id: string) => {
   const rows = await electric.db.rawQuery({
     sql: `SELECT id FROM jsons WHERE id = ${builder.makePositionalParam(1)};`,
     args: [id],
@@ -772,22 +536,7 @@ const get_json_raw_internal = async (electric: Electric, id: string) => {
   return null
 }
 
-export const get_json = withDal ? get_json_dal : get_json_raw_internal
-
-const get_jsonb_dal = async (electric: Electric, id: string) => {
-  const res = await electric.db.jsons.findUnique({
-    where: {
-      id: id,
-    },
-    select: {
-      id: true,
-      jsb: true,
-    },
-  })
-  return res
-}
-
-const get_jsonb_raw_internal = async (electric: Electric, id: string) => {
+export const get_jsonb = async (electric: Electric, id: string) => {
   const rows = await electric.db.rawQuery({
     sql: `SELECT id, jsb FROM jsons WHERE id = ${builder.makePositionalParam(1)};`,
     args: [id],
@@ -800,18 +549,7 @@ const get_jsonb_raw_internal = async (electric: Electric, id: string) => {
   return null
 }
 
-export const get_jsonb = withDal ? get_jsonb_dal : get_jsonb_raw_internal
-
-const write_json_dal = async (electric: Electric, id: string, jsb: any) => {
-  return electric.db.jsons.create({
-    data: {
-      id,
-      jsb,
-    },
-  })
-}
-
-const write_json_raw = async (electric: Electric, id: string, jsb: any) => {
+export const write_json = async (electric: Electric, id: string, jsb: any) => {
   const [ row ] = await electric.adapter.query({
     sql: `INSERT INTO jsons (id, jsb) VALUES (${builder.makePositionalParam(1)}, ${builder.makePositionalParam(2)}) RETURNING *;`,
     args: [id, converter.encode(jsb, PgBasicType.PG_JSONB)],
@@ -819,22 +557,14 @@ const write_json_raw = async (electric: Electric, id: string, jsb: any) => {
   return decodeRow<{ id: string, jsb: any }>(row, 'jsons')
 }
 
-export const write_json = withDal ? write_json_dal : write_json_raw
+type Color = "RED" | "GREEN" | "BLUE"
 
 type Enum = {
   id: string
   c: Color | null
 }
 
-const get_enum_dal = (electric: Electric, id: string) => {
-  return electric.db.enums.findUnique({
-    where: {
-      id: id,
-    },
-  })
-}
-
-const get_enum_raw = async (electric: Electric, id: string) => {
+export const get_enum = async (electric: Electric, id: string) => {
   const res = await electric.db.rawQuery({
     sql: `SELECT * FROM enums WHERE id = ${builder.makePositionalParam(1)};`,
     args: [id],
@@ -846,18 +576,7 @@ const get_enum_raw = async (electric: Electric, id: string) => {
   return null
 }
 
-export const get_enum = withDal ? get_enum_dal : get_enum_raw
-
-const write_enum_dal = (electric: Electric, id: string, c: Color | null) => {
-  return electric.db.enums.create({
-    data: {
-      id,
-      c,
-    },
-  })
-}
-
-const write_enum_raw = async (electric: Electric, id: string, c: Color | null) => {
+export const write_enum = async (electric: Electric, id: string, c: Color | null) => {
   const [ row ] = await electric.adapter.query({
     sql: `INSERT INTO enums (id, c) VALUES (${builder.makePositionalParam(1)}, ${builder.makePositionalParam(2)}) RETURNING *;`,
     args: [id, c],
@@ -865,25 +584,7 @@ const write_enum_raw = async (electric: Electric, id: string, c: Color | null) =
   return decodeRow<Enum>(row, 'enums')
 }
 
-export const write_enum = withDal ? write_enum_dal : write_enum_raw
-
-const get_blob_dal = async (electric: Electric, id: string) => {
-  const res = await electric.db.blobs.findUnique({
-    where: {
-      id: id,
-    },
-  })
-
-  if (res?.blob) {
-    // The PG driver returns a NodeJS Buffer but the e2e test matches on a plain Uint8Array.
-    // So we convert the Buffer to a Uint8Array.
-    // Note that Buffer is a subclass of Uint8Array.
-    res.blob = new Uint8Array(res.blob)
-  }
-  return res
-}
-
-const get_blob_raw = async (electric: Electric, id: string) => {
+export const get_blob = async (electric: Electric, id: string) => {
   const res = await electric.db.rawQuery({
     sql: `SELECT * FROM blobs WHERE id = ${builder.makePositionalParam(1)};`,
     args: [id],
@@ -898,22 +599,7 @@ const get_blob_raw = async (electric: Electric, id: string) => {
   return null
 }
 
-export const get_blob = withDal ? get_blob_dal : get_blob_raw
-
-const write_blob_dal = (
-  electric: Electric,
-  id: string,
-  blob: Uint8Array | null
-) => {
-  return electric.db.blobs.create({
-    data: {
-      id,
-      blob,
-    },
-  })
-}
-
-const write_blob_raw = async (
+export const write_blob = async (
   electric: Electric,
   id: string,
   blob: Uint8Array | null
@@ -925,8 +611,6 @@ const write_blob_raw = async (
   return decodeRow<{ id: string, blob: Uint8Array | null }>(row, 'blobs')
 }
 
-export const write_blob = withDal ? write_blob_dal : write_blob_raw
-
 export const get_item_columns = (
   electric: Electric,
   table: string,
@@ -935,20 +619,7 @@ export const get_item_columns = (
   return electric.db.rawQuery({ sql: `SELECT ${column} FROM ${table};` })
 }
 
-const insert_items_dal = async (electric: Electric, keys: [string]) => {
-  const items = keys.map((k) => {
-    return {
-      id: uuidv4(),
-      content: k,
-    }
-  })
-
-  await electric.db.items.createMany({
-    data: items,
-  })
-}
-
-const insert_items_raw = async (electric: Electric, keys: [string]) => {
+export const insert_items = async (electric: Electric, keys: [string]) => {
   const items = keys.map((k) => {
     return {
       id: uuidv4(),
@@ -964,26 +635,13 @@ const insert_items_raw = async (electric: Electric, keys: [string]) => {
   })
 }
 
-export const insert_items = withDal ? insert_items_dal : insert_items_raw
-
-const insert_item_dal = async (electric: Electric, id: string, content: string) => {
-  return await electric.db.items.create({
-    data: {
-      id,
-      content,
-    },
-  })
-}
-
-const insert_item_raw = async (electric: Electric, id: string, content: string) => {
+export const insert_item = async (electric: Electric, id: string, content: string) => {
   const [ row ] = await electric.adapter.query({
     sql: `INSERT INTO items (id, content) VALUES (${builder.makePositionalParam(1)}, ${builder.makePositionalParam(2)}) RETURNING *;`,
     args: [id, content],
   })
   return decodeRow<Item>(row, 'items')
 }
-
-export const insert_item = withDal ? insert_item_dal : insert_item_raw
 
 export const insert_extended_item = async (
   electric: Electric,
@@ -1011,17 +669,7 @@ export const insert_extended_into = async (
   })
 }
 
-const delete_item_dal = async (electric: Electric, keys: [string]) => {
-  for (const key of keys) {
-    await electric.db.items.deleteMany({
-      where: {
-        content: key,
-      },
-    })
-  }
-}
-
-const delete_item_raw = async (electric: Electric, keys: [string]) => {
+export const delete_item = async (electric: Electric, keys: [string]) => {
   for (const key of keys) {
     await electric.adapter.run({
       sql: `DELETE FROM items WHERE content = ${builder.makePositionalParam(1)};`,
@@ -1030,32 +678,11 @@ const delete_item_raw = async (electric: Electric, keys: [string]) => {
   }
 }
 
-export const delete_item = withDal ? delete_item_dal : delete_item_raw
-
-const get_other_items_dal = (electric: Electric) => {
-  return electric.db.other_items.findMany()
-}
-
-const get_other_items_raw = async (electric: Electric) => {
+export const get_other_items = async (electric: Electric) => {
   return electric.db.rawQuery({ sql: 'SELECT * FROM other_items;' })
 }
 
-export const get_other_items = withDal ? get_other_items_dal : get_other_items_raw
-
-const insert_other_items_dal = async (electric: Electric, keys: [string]) => {
-  const items = keys.map((k) => {
-    return {
-      id: uuidv4(),
-      content: k,
-    }
-  })
-
-  await electric.db.other_items.createMany({
-    data: items,
-  })
-}
-
-const insert_other_items_raw = async (electric: Electric, keys: [string]) => {
+export const insert_other_items = async (electric: Electric, keys: [string]) => {
   const items = keys.map((k) => {
     return {
       id: uuidv4(),
@@ -1071,19 +698,7 @@ const insert_other_items_raw = async (electric: Electric, keys: [string]) => {
   })
 }
 
-export const insert_other_items = withDal ? insert_other_items_dal : insert_other_items_raw
-
-const insert_other_item_dal = async (electric: Electric, id: string, content: string, item_id: string) => {
-  return await electric.db.other_items.create({
-    data: {
-      id,
-      content,
-      item_id
-    },
-  })
-}
-
-const insert_other_item_raw = async (electric: Electric, id: string, content: string, item_id: string) => {
+export const insert_other_item = async (electric: Electric, id: string, content: string, item_id: string) => {
   const [ row ] = await electric.adapter.query({
     sql: `INSERT INTO other_items (id, content, item_id) VALUES (${builder.makePositionalParam(1)}, ${builder.makePositionalParam(2)}, ${builder.makePositionalParam(3)}) RETURNING *;`,
     args: [id, content, item_id],
@@ -1091,19 +706,7 @@ const insert_other_item_raw = async (electric: Electric, id: string, content: st
   return decodeRow<Item>(row, 'other_items')
 }
 
-export const insert_other_item = withDal ? insert_other_item_dal : insert_other_item_raw
-
-const delete_other_item_dal = async (electric: Electric, keys: [string]) => {
-  for (const key of keys) {
-    await electric.db.other_items.deleteMany({
-      where: {
-        content: key,
-      },
-    })
-  }
-}
-
-const delete_other_item_raw = async (electric: Electric, keys: [string]) => {
+export const delete_other_item = async (electric: Electric, keys: [string]) => {
   for (const key of keys) {
     await electric.adapter.run({
       sql: `DELETE FROM other_items WHERE content = ${builder.makePositionalParam(1)};`,
@@ -1111,8 +714,6 @@ const delete_other_item_raw = async (electric: Electric, keys: [string]) => {
     })
   }
 }
-
-export const delete_other_item = withDal ? delete_other_item_dal : delete_other_item_raw
 
 const replicationTransformer = {
   transformOutbound: (item: Readonly<Item>) => ({
@@ -1131,19 +732,13 @@ const replicationTransformer = {
   }),
 }
 
-const set_item_replication_transform_dal = (electric: Electric) => {
-  electric.db.items.setReplicationTransform(replicationTransformer)
-}
-
-const set_item_replication_transform_raw = (electric: Electric) => {
+export const set_item_replication_transform = (electric: Electric) => {
   const namespace = builder.defaultNamespace
   electric.setReplicationTransform<Item>(
     new QualifiedTablename(namespace, 'items'),
     replicationTransformer
   )
 }
-
-export const set_item_replication_transform = withDal ? set_item_replication_transform_dal : set_item_replication_transform_raw
 
 export const stop = async () => {
   await globalRegistry.stopAll()
