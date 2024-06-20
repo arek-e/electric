@@ -9,7 +9,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "rm -rf ./dist && vite build && tsc  -p tsconfig.build.json",
-    "check-styleguide": "prettier --check --loglevel warn . && eslint src --quiet",
+    "check-styleguide": "prettier --check --log-level warn . && eslint src --quiet",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build",
     "test": "vitest run"
