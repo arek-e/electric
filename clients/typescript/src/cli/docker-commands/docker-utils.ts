@@ -2,11 +2,15 @@ import { spawn } from 'child_process'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const composeFile = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'docker',
-  'compose.yaml'
-)
+const composeFilePath = (filename: string) =>
+  path.join(path.dirname(fileURLToPath(import.meta.url)), 'docker', filename)
+
+const composeFile = 'compose.yaml'
+
+const extraComposeFile =
+  process.env.DOCKER_NETWORK_USE_EXTERNAL === 'host'
+    ? 'compose.hostnet.yaml'
+    : 'compose.ip6net.yaml'
 
 export function dockerCompose(
   command: string,
@@ -19,7 +23,9 @@ export function dockerCompose(
     '--ansi',
     'always',
     '-f',
-    composeFile,
+    composeFilePath(composeFile),
+    '-f',
+    composeFilePath(extraComposeFile),
     command,
     ...userArgs,
   ]

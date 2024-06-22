@@ -1,0 +1,3 @@
+services:
+  electric:
+    network_mode: host
