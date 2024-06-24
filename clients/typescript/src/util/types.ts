@@ -19,7 +19,14 @@ export type Query = string
 export type Row = { [key: string]: SqlValue }
 export type RowCallback = (row: Row) => void
 export type RowId = number
-export type SqlValue = string | number | null | Uint8Array | bigint
+export type SqlValue =
+  | boolean
+  | string
+  | number
+  | Uint8Array
+  | undefined
+  | null
+  | bigint
 export type StatementId = string
 export type Tablename = string
 export type VoidOrPromise = void | Promise<void>
@@ -188,7 +195,7 @@ export function isDataChange(change: Change): change is DataChange {
 }
 
 export type DbRecord = {
-  [key: string]: boolean | string | number | Uint8Array | undefined | null
+  [key: string]: SqlValue
 }
 
 export type Replication<TransactionType> = {

@@ -14,7 +14,10 @@ export interface Converter {
    * @param row The row to encode
    * @param tableSchema The schema of the table for this row.
    */
-  encodeRow(row: Row, tableSchema: AnyTableSchema): Record<string, any>
+  encodeRow(
+    row: Row,
+    tableSchema: Pick<AnyTableSchema, 'fields'>
+  ): Record<string, any>
   /**
    * Encodes the provided rows for storing in the database.
    * @param rows The rows to encode
@@ -22,7 +25,7 @@ export interface Converter {
    */
   encodeRows(
     rows: Array<Row>,
-    tableSchema: AnyTableSchema
+    tableSchema: Pick<AnyTableSchema, 'fields'>
   ): Array<Record<string, any>>
   /**
    * Decodes the provided value from the database.
@@ -37,7 +40,7 @@ export interface Converter {
    */
   decodeRow<T extends Record<string, any> = Record<string, any>>(
     row: Row,
-    tableSchema: AnyTableSchema
+    tableSchema: Pick<AnyTableSchema, 'fields'>
   ): T
   /**
    * Decodes the provided rows from the database.
@@ -46,7 +49,7 @@ export interface Converter {
    */
   decodeRows<T extends Record<string, any> = Record<string, any>>(
     rows: Array<Row>,
-    tableSchema: AnyTableSchema
+    tableSchema: Pick<AnyTableSchema, 'fields'>
   ): Array<T>
 }
 
@@ -63,24 +66,27 @@ export function isDataObject(v: unknown): boolean {
 }
 
 export function mapRow<T extends Record<string, any> = Record<string, any>>(
-  row: Row,
-  tableSchema: AnyTableSchema,
+  row: Record<string, any>,
+  tableSchema: Pick<AnyTableSchema, 'fields'>,
   f: (v: any, pgType: PgType) => any
 ): T {
-  const decodedRow = {} as T
+  const mappedRow = {} as T
 
   for (const [key, value] of Object.entries(row)) {
     const pgType = tableSchema.fields[key]
-    const decodedValue = f(value, pgType)
-    decodedRow[key as keyof T] = decodedValue
+    const mappedValue =
+      pgType === undefined
+        ? value // it's an unknown column, leave it as is
+        : f(value, pgType)
+    mappedRow[key as keyof T] = mappedValue
   }
 
-  return decodedRow
+  return mappedRow
 }
 
 export function mapRows<T extends Record<string, any> = Record<string, any>>(
   rows: Array<Row>,
-  tableSchema: AnyTableSchema,
+  tableSchema: Pick<AnyTableSchema, 'fields'>,
   f: (v: any, pgType: PgType) => any
 ): T[] {
   return rows.map((row) => mapRow<T>(row, tableSchema, f))
