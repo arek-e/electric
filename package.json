@@ -8,6 +8,6 @@
   "scripts": {
     "bump": "pnpm exec changeset version && pnpm install && pnpm run -r --if-present post-version-bump",
     "prepare": "pnpm run build",
-    "build": "pnpm install &&  cd /generator && pnpm build"
+    "build": "pnpm install"
   }
 }
